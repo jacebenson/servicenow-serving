@@ -1,0 +1,359 @@
+<?xml version="1.0" encoding="UTF-8"?><record_update table="sp_widget">
+    <sp_widget action="INSERT_OR_UPDATE">
+        <category>custom</category>
+        <client_script><![CDATA[function($scope, $location) {
+	var c = this;
+	var queueLink = '?id=walkup_queue_on_site';
+	var checkInLink = '?id=walkup_check_in';
+	var surveyLink = '?id=walkup_survey';
+
+	c.queueLink = queueLink;
+	c.checkInLink = checkInLink;
+	c.surveyLink = surveyLink;
+	c.isSelected = false;
+	c.selectedName = '';
+	c.previousSysId = '';
+	c.recordPickerFields = {};
+
+	// Reset the state of the home page prior to selecting a location
+	c.cancelSelection = function() {
+		c.selectedName = '';
+		c.isSelected = false;
+		clearRecordPickerFields();
+	};
+
+	initializePage();
+
+	// Listen to changes made to the record picker
+	$scope.$on("field.change", function(evt, parms) {
+		var sysId = parms.newValue;
+		var name = parms.displayValue;
+
+		// When a new value is selcted from the location picker
+		if (sysId && c.previousSysId === sysId) {
+			c.previousSysId = sysId;
+			selectLocation(name);
+		}
+		// Clear the state of the home page
+		else {
+			c.cancelSelection();
+		}
+
+		setLink(sysId);
+		setUrl(sysId);
+	});
+
+	/**
+	 * Initialize the home page based on the url parameters. If there is a location_id and a 
+	 * name in the parameter, then render the location picker with the corresponding id and name
+	 */
+	function initializePage() {
+		var urlParams = $location.search();
+		var sysId = urlParams.location_id;
+
+		if (sysId)
+			checkIfLocationExist(sysId);
+		else
+			clearRecordPickerFields();
+	}
+
+	/**
+	 * Make a call to the server to check if the passed in sysId exists or is active.
+	 *
+	 * @param {stirng} sysId - The sys_id of the wu_location_queue table.
+	 */
+	function checkIfLocationExist(sysId) {
+		c.server.get({
+			action: c.data.actions.checkLocationExists,
+			sysId: sysId
+		}).then(function(result) {
+			var locationName = result.data.doesLocationExist;
+
+			if (locationName) {
+				c.recordPickerFields = {
+					displayValue: locationName,
+					value: sysId,
+					name: 'location'
+				};
+
+				c.previousSysId = sysId
+				selectLocation(locationName);
+				setLink(sysId);
+			}
+			else
+				clearRecordPickerFields();
+
+		});
+	}
+
+	// Set the state to show the clickable panels and the locaiton name when a location has been selected
+	function selectLocation(name) {
+		c.selectedName = name;
+		c.isSelected = true;
+	}
+
+	// Set the record picker fields to a clean state.
+	function clearRecordPickerFields() {
+		c.recordPickerFields = {
+			displayValue: name,
+			value: '',
+			name: 'location'
+		};
+	}
+
+	// Set the url parameters
+	function setUrl(id) {
+		$location.search('location_id', id);
+	}
+
+	// Change the links to point to the walk-up pages with the corresponding id and name
+	function setLink(id) {
+		c.queueLink = queueLink + '&location_id=' + id;
+		c.checkInLink = checkInLink + '&location_id=' + id;
+		c.surveyLink = surveyLink + '&location_id=' + id;
+	}
+}]]></client_script>
+        <controller_as>c</controller_as>
+        <css>$color_now: #E51B24;
+
+.location-header {
+  margin-top: 25px;
+  margin-bottom: 25px;
+  .location-picker {
+    max-width: 340px;
+  }
+
+  .location-name {
+    display-inline: inline-block;
+    h2 {
+      font-size: 1.5em;
+      display: inline-block;
+      margin-right: 8px;
+    }
+  }
+}
+
+p {
+  color: #3A3F51;
+  font-size: 1.1em;
+  line-height: 1.6;
+}
+
+.color_box {
+  display: block;
+  position: relative;
+  padding: 20px;
+  border-radius: 4px;
+  margin-bottom: 20px;
+  -webkit-flex: 1;
+  -ms-flex: 1;
+  flex: 1;
+
+  &amp;:hover {
+    background-color: #E1E4E6;
+  }
+}
+
+h2 {
+  font-weight: 400;
+  padding: 0;
+  margin: 10px 0;
+  line-height: 1.4;
+  font-size: 22px;
+}
+
+.intro {
+  margin: 50px 0 25px;
+  border-bottom: 1px solid #ddd;
+  padding-bottom: 25px;
+}
+
+.flex {
+  display: -webkit-flex;
+  display: -ms-flexbox;
+  display: flex;
+  -webkit-flex-wrap: wrap;
+  -ms-flex-wrap: wrap;
+  flex-wrap: wrap;
+  -webkit-flex-direction: row;
+  -ms-flex-direction: row;
+  flex-direction: row;
+
+  &amp; &gt; div {
+    -webkit-flex: 1;
+    -ms-flex: 1;
+    flex: 1;
+    display: -webkit-flex;
+    display: -ms-flexbox;
+    display: flex;
+    padding-right: 10px;
+
+    &amp;:last-child {
+      padding-right: 0;
+    }
+
+    .text-primary {
+      background: rgba($brand-primary, 0.15);
+    }
+
+    .text-info {
+      background: rgba($brand-info, 0.15);
+    }
+
+    .text-success {
+      background: rgba($brand-success, 0.15);
+    }
+
+    .text-warning {
+      background: rgba($brand-warning, 0.15);
+    }    
+  }
+
+  &amp; &gt; div:hover {
+
+    p,
+    .fa-circle,
+    h2 {
+      color: #fff;
+    }
+
+    .text-primary {
+      background-color: $brand-primary;
+      .fa-inverse {
+        color: $brand-primary;
+      }
+    }
+
+    .text-info {
+      background-color: $brand-info;
+      .fa-inverse {
+        color: $brand-info;
+      }
+    }
+
+    .text-success {
+      background-color: $brand-success;
+      .fa-inverse {
+        color: $brand-success;
+      }
+    }
+
+    .text-warning {
+      background-color: $brand-warning;
+      .fa-inverse {
+        color: $brand-warning;
+      }
+    }
+
+  }
+
+}
+
+}</css>
+        <data_table>sp_instance</data_table>
+        <demo_data/>
+        <description/>
+        <docs/>
+        <field_list/>
+        <has_preview>false</has_preview>
+        <id>serving-home</id>
+        <internal>false</internal>
+        <link><![CDATA[function link(scope, element, attrs, controller) {  }]]></link>
+        <name>Serving Home</name>
+        <option_schema/>
+        <public>false</public>
+        <roles/>
+        <script><![CDATA[(function(){
+	var actions = data.actions = {};
+	actions.checkLocationExists = 'CHECK_EXISTS';
+	var walkUpUtil = new sn_walkup.ExtPointUtil().loadExtension("WalkUpUtil");
+
+	if (input && input.action === actions.checkLocationExists)
+		data.doesLocationExist = walkUpUtil.checkLocationExists(input.sysId);
+
+	data.isAuthorizedUser = walkUpUtil.isAuthorized(gs.getUser());
+	data.homeRoute = '/';
+
+})();]]></script>
+        <servicenow>false</servicenow>
+        <sys_class_name>sp_widget</sys_class_name>
+        <sys_created_by>jacebenson</sys_created_by>
+        <sys_created_on>2019-05-20 17:58:26</sys_created_on>
+        <sys_id>3d5163514f61f3006641cfa18110c7f3</sys_id>
+        <sys_mod_count>1</sys_mod_count>
+        <sys_name>Serving Home</sys_name>
+        <sys_package display_value="Check In" source="x_snc_checkin">662d06644f2573006641cfa18110c767</sys_package>
+        <sys_policy/>
+        <sys_scope display_value="Check In">662d06644f2573006641cfa18110c767</sys_scope>
+        <sys_update_name>sp_widget_3d5163514f61f3006641cfa18110c7f3</sys_update_name>
+        <sys_updated_by>jacebenson</sys_updated_by>
+        <sys_updated_on>2019-05-20 17:58:37</sys_updated_on>
+        <template><![CDATA[<div>
+  <div ng-if="c.data.isAuthorizedUser">
+
+    <div class="intro">
+      <h1>${Walk-up Experience}</h1>
+    </div>
+    <div class="location-header">
+      <div ng-if="!c.isSelected" class="location-picker">
+        <sn-record-picker
+                          id="location-dropdown"
+                          table="'wu_location_queue'"
+                          display-field="'name'"
+                          placeholder="${Select a walk-up location}"
+                          value-field="'sys_id'"
+                          search-fields="'name'"
+                          field="c.recordPickerFields"
+                          page-size="100"
+                          default-query="'active=true'"
+                          aria-label="select-location"
+                          >
+        </sn-record-picker>
+      </div>
+      <div ng-if="c.isSelected" class="location-name">
+        <h2 class="location-name">
+          {{c.selectedName}}
+        </h2>
+        <a class="cancel-location" ng-click="c.cancelSelection()" href="">${Change location}</a>
+      </div>
+    </div>
+
+    <div ng-if="c.isSelected" class="flex">
+      <div aria-labelledby="queueLabel" aria-describedby="queueInfo">
+        <a href="{{c.queueLink}}" class="color_box text-info" role="link">
+          <span aria-label="Queue icon" class="fa fa-stack fa-2x"> 
+            <i class="fa fa-circle fa-stack-2x"></i> 
+            <i class="fa fa-list-alt fa-stack-1x fa-inverse"></i> 
+          </span>
+          <h2 id='queueLabel'>${Queue}</h2>
+          <p id='queueInfo'>${View the current list of requestors at the walk-up location.}</p>
+        </a>
+      </div>
+      <div aria-labelledby="checkInLabel" aria-describedby="checkInInfo">
+        <a href="{{c.checkInLink}}" class="color_box text-success" role="link">
+          <span aria-label="Check-in icon" class="fa fa-stack fa-2x"> 
+            <i class="fa fa-circle fa-stack-2x"></i> 
+            <i class="fa fa-check-square-o fa-stack-1x fa-inverse"></i> 
+          </span>
+          <h2 id="checkInLabel">${Check-in}</h2>
+          <p id="checkInInfo">${Allow requestors to check-in for service at the walk-up location.}</p>
+        </a>
+      </div>
+      <div aria-labelledby="surveyLabel" aria-describedby="surveyInfo">
+        <a href="{{c.surveyLink}}" class="color_box text-warning" role="link">
+          <span aria-label="Survey icon" class="fa fa-stack fa-2x"> 
+            <i class="fa fa-circle fa-stack-2x"></i> 
+            <i class="fa fa-paper-plane-o fa-stack-1x fa-inverse"></i> 
+          </span>
+          <h2 id="surveyLabel">${Survey}</h2>
+          <p id="surveyInfo">${Capture requestor sentiment of the experience by location.}</p>
+        </a>
+      </div>
+    </div>
+  </div>
+  <walkup-authorization is_authorized="c.data.isAuthorizedUser" home_route="c.data.homeRoute"></walkup-authorization>
+</div>
+
+]]></template>
+    </sp_widget>
+</record_update>

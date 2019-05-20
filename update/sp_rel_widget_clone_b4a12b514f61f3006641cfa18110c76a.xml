@@ -1,0 +1,1939 @@
+<?xml version="1.0" encoding="UTF-8"?><record_update table="sp_rel_widget_clone">
+    <sp_rel_widget_clone action="INSERT_OR_UPDATE">
+        <child display_value="Online serving experience">2ca12b514f61f3006641cfa18110c749</child>
+        <cloned>2019-05-20 17:59:43</cloned>
+        <last_validated>2019-05-20 17:59:43</last_validated>
+        <parent display_value="Online check-in experience">f84cfc133b7303001d132c2b54efc476</parent>
+        <payload>&lt;?xml version="1.0" encoding="UTF-8"?&gt;&lt;sp_widget&gt;&lt;category&gt;custom&lt;/category&gt;&lt;client_script&gt;&lt;![CDATA[function($scope, $anchorScroll, $timeout, $location, spUtil, i18n, walkUpModal, spModal, walkUpQueue, formatWalkUpSchedule, spScUtil) {
+	/* widget controller */
+	var c = this;
+	var CURRENT_PAGE = 'CHECK_IN';
+	var OTHER_OPTION = '0';
+	var FETCH_APPTMNT_INTERVAL = 15;
+	var STATUS_OK = 200;
+	var APPOINTMENT_VIEW = "appointment";
+	var urlParams = $location.search();
+
+	// Controller to fetch appointment at an interval
+	var apptmntIntervalCtrl = walkUpQueue.apptmntIntervalCtrl();
+	apptmntIntervalCtrl.setIntervalTime(FETCH_APPTMNT_INTERVAL);
+
+	// for the case when a user directly goes to the location through a link
+	if (urlParams.location_id) {
+		c.data.locationId = urlParams.location_id;
+		c.data.action = c.data.user.employee;
+		c.data.showQueueName = true;
+		c.showAppointmentAlert = true;
+
+		c.server.update().then(function() {
+			c.data.action = undefined;
+			if (!c.data.queue_name) {
+				c.data.showPicker = true;
+				c.data.items = '';
+				c.data.locationId = "";
+				c.data.showQueuePosition = false;
+				c.data.resultsFound = false;
+			} else {
+				watchInteractionRecords(urlParams.location_id);
+				initializePage(urlParams.location_id);
+			}
+		});
+	} else {
+		c.data.action = c.data.userAction.getLocation;
+		c.server.update().then(function() {
+			c.data.action = undefined;
+			if (c.data.closest_location_id) {
+				//Modify url params to update the loc id.
+				$location.search('location_id', c.data.closest_location_id);
+			} else {
+				c.data.showPicker = true;
+			}
+		});
+	}
+
+	// Determine which panel to display based on url params
+	if (urlParams.view === APPOINTMENT_VIEW)
+		c.checkInPanel = false;
+	else
+		c.checkInPanel = true;
+
+	// Initialize our schedule widget
+	spUtil.get('walk-up-schedule').then(function(response) {
+		c.data.scheduleWidget = response;
+	});
+
+	// Set our scope function to detect an away state based off the embedded location widget
+	c.displayCheckIn = function(schedule) {
+		if (!schedule || !schedule.isCheckInOpen || schedule.enableAway)
+			return false;
+		return true;
+	};
+
+	// Check for when enable away state is enabled. When the schedule is closed, it will take precedence over
+	// the away state.
+	c.isAway = function(schedule) {
+		return schedule &amp;&amp; schedule.enableAway &amp;&amp; schedule.isCheckInOpen;
+	}
+
+	// Check for when the walk-up check-in is closed due to hours of operation.
+	c.isClosed = function(schedule) {
+		return schedule &amp;&amp; !schedule.isCheckInOpen;
+	}
+
+	// checks to see if these variables are undefined. If they are then the page is still loading
+	c.isLoading = function(schedule, locationId, waitingList) {
+		return schedule === undefined || locationId === undefined || waitingList === undefined;
+	};
+
+	/**
+	 * Set user selected reason for appointments
+	 *
+	 * @param {Object} reason the user selected for an appointment
+	 */
+	c.onApptmntReasonSelect = function(reason) {
+		if (reason)
+			c.data.apptmntSelectedReasonId = reason.value;
+		else
+			c.data.apptmntSelectedReasonId = '';
+	}
+
+	/**
+	 * Set user selected reason for online check-in
+	 *
+	 * @param {Object} reason that the user selected for online check-in
+	 */
+	c.onReasonSelect = function(reason) {
+		if (reason) {
+			c.data.selectedIssueId = reason.value;
+			c.data.selectedIssueTextEntry = reason.display_text_area;
+		} else {
+			c.data.selectedIssueId = null;
+			c.data.selectedIssueTextEntry = null;
+		}
+	}
+
+	/**
+	 * Fetch contextual search results for regular online check-in
+	 *
+	 * @param {string} searchText
+	 * @return a promise from the timeout or null
+	 */
+	c.getCheckInCTXSearchResults = function(searchText) {
+		if (searchText === '') {
+			c.isReasonSelected = false;
+			clearCTXSearchResults();
+			return null;
+		}
+		else {
+			c.isReasonSelected = true;
+			c.data.checkInSearchText = searchText;
+			return getCTXSearchResults(searchText);
+		}
+	}
+
+	/**
+	 * Fetch contextual search results when creating appointments
+	 *
+	 * @param {string} searchText
+	 * @return a promise from the timeout or null
+	 */
+	c.getApptmntCTXSearchResults = function(searchText) {
+		if (searchText === '') {
+			c.isApptmntReasonSelected = false;
+			clearCTXSearchResults();
+			return null;
+		}
+		else {
+			c.isApptmntReasonSelected = true;
+			c.data.apptmntSearchText = searchText;
+			return getCTXSearchResults(searchText);
+		}
+	}
+
+	/**
+	 * Creates an appointment using service catalog's record producer API
+	 *
+	 * @param {Object} snAppointment is the payload constructed in the appointment booking widget
+	 */
+	c.createAppointment = function(snAppointment, callback) {
+		var catalogID;
+		try {
+			// Parse the snAppointment object to get the catalogID
+			var sn_appointment = JSON.parse(snAppointment);
+			catalogID = sn_appointment.config.catalogId;
+
+			// Ensure that there is an associated catalogID
+			if (!catalogID) {
+				spUtil.addErrorMessage(c.data.msgs.scheduleAppointmentError);
+				return false;
+			}
+		} catch (e) {
+			spUtil.addErrorMessage(c.data.msgs.scheduleAppointmentError);
+			return false;
+		}
+
+		// Set the payload. These attributes are the same variables on the this location's
+		// appointment record producer
+		var payload = {
+			sn_appointment: snAppointment,
+			current: c.data.currentUser,
+			location: c.data.cmnLocationId,
+			reason: c.data.apptmntSelectedReasonId,
+			reason_description: c.data.apptmntSearchText
+		}
+
+		// Create an appointment through a record producer
+		spScUtil
+			.submitProducer(catalogID, payload)
+			.then(function(response) {
+			if (response.status === STATUS_OK &amp;&amp; response.data.result) {
+				fetchAppointmentInfo(response.data.result.sys_id, callback);
+			} else {
+				spUtil.addErrorMessage(c.data.msgs.scheduleAppointmentError);
+			}
+		});
+	}
+
+	// Logic for disabling checkin button based on other input field.
+	c.empCheckinBtnDisabled = function() {
+		if (!c.isReasonSelected)
+			return true;
+		return false;
+	};
+
+	c.showLocPicker = function() {
+		c.data.locId = '';
+		c.data.showLocPicker = true;
+		c.data.showQueueName = false;
+	};
+
+	c.showQueueName = function() {
+		c.data.showQueueName = true;
+		c.data.showLocPicker = false;
+	};
+
+	c.setLocation = function(location_id) {
+		c.data.locationId = location_id;
+		// If user selects the same location that he has checked in on, avoid a redirect and display the checkin info.
+		if (urlParams.location_id  === location_id ) {
+			c.data.showLocPicker = false;
+			c.data.showQueueName = true;
+		}
+		c.server.update();
+		$location.search('location_id', location_id);
+	};
+
+	c.leaveQueue = function() {
+		walkUpModal.promptModal($scope, c.data.msgs.leaveQueueHeaderMsg, c.data.msgs.leaveQueueInfoMsg,
+														c.data.msgs.agreeModalMsg, c.data.msgs.stayInQueueMsg, clearFields, postLeaveQueueConf);
+	};
+
+	c.submitEmployeeRequest = function() {
+		c.data.showTextArea = false;
+		c.data.action = c.data.user.employee;
+		//Post this.data to the Server Script.
+		c.server.update().then(function() {
+			c.data.action = undefined;
+			if (c.data.error) {
+				spUtil.addErrorMessage(c.data.msgs.errorMsg);
+			} else if (c.data.isPresentInDiffQueue) {
+				promptUser(c.data.msgs.differentQueueHeaderMsg, c.data.msgs.differentQueueInfoMsg, c.data.msgs.agreeSwitchModalMsg, c.data.msgs.stayInOtherQueueMsg);
+			} else {
+				c.data.showLocPicker = false;
+				c.data.showQueuePosition = true;
+				c.data.showQueueName = true;
+			}
+		});
+	};
+
+	c.toggleCheckInPanel = function() {
+		c.checkInPanel = true;
+	}
+
+	c.toggleAppointmentPanel = function() {
+		c.checkInPanel = false;
+	}
+
+	c.closeAppointmentAlert = function() {
+		c.showAppointmentAlert = false;
+	}
+
+	/**
+	 * Will initialize the record watcher for the interaction table on this page. Each time there
+	 * is a change, it will fetch the latest queue status.
+	 *
+	 * @param {string} locationId - The sys_id of the selected walk-up location
+	 */
+	function watchInteractionRecords(locationId) {
+		// Record watch for interaction queue
+		spUtil.recordWatch($scope, 'interaction', 'location=' + c.data.queue_location_id, function(name, data) {
+			fetchQueue(locationId);
+		});
+	}
+
+	/**
+	 * Fetch data, for the current walk-up location to be used to initialize the page.
+	 *
+	 * @param {string} locationId - The sys_id of the selected walk-up location
+	 **/
+	function initializePage(locationId) {
+		c.server.get({
+			action: c.data.userAction.getConfig
+		}).then(function(response) {
+			var location = response.data.location;
+			var locationTimeZone = response.data.locationTimeZone;
+
+			var locationImage =
+					location.location_image ?
+					location.location_image + '.iix' :
+			null;
+
+			var weekRange = formatWalkUpSchedule.getCurrentWeekSpan(locationTimeZone);
+
+			// Make another call to the server in order to fetch the schedule span.
+			fetchScheduleSpan(weekRange, locationTimeZone);
+
+			c.location = {
+				name: location.name,
+				description: location.description,
+				image: locationImage,
+				maxResults: location.max_search_results
+			};
+
+			c.data.issueChoices = response.data.reasonList;
+			c.data.positionNotification = response.data.positionNotification;
+			c.data.enableOnlineCheckIn = parseInt(response.data.enableCheckIn);
+			c.data.lastCheckIn = response.data.lastCheckIn;
+			c.data.scheduleMessage = {};
+			c.data.scheduleMessage.closedMessage = response.data.closedMessage;
+			c.data.scheduleMessage.awayMessage = response.data.awayMessage;
+			c.data.noteScheduleMsg = response.data.noteScheduleMsg;
+			c.data.appointmentSelect = response.data.appointmentSelect;
+			c.data.hasAppointmentBooking = response.data.hasAppointmentBooking;
+
+			if (c.data.hasAppointmentBooking)
+				setAppointmentTaskState(response.data);
+
+			c.data.recordProducer = response.data.recordProducer;
+			c.data.phoneNumber = response.data.phoneNumber;
+
+			c.data.cmnLocationId = response.data.cmnLocationId;
+			c.data.currentUser = response.data.currentUser;
+			c.data.noteScheduleMsg = response.data.noteScheduleMsg;
+			c.data.isApptmntEnabled = response.data.isApptmntEnabled;
+
+			// Set up interval to fetch appointments
+			if (response.data.isApptmntEnabled) {
+				apptmntIntervalCtrl.setInterval(function() {
+					fetchQueue(locationId);
+				});
+			} else {
+				apptmntIntervalCtrl.clearInterval();
+			}
+
+			fetchQueue(locationId);
+		});
+	}
+
+	/**
+	 * Fetch the times of availability given a range of dates. Set the view to display the
+	 * hours of operation to the user.
+	 *
+	 * @param {string} locationId- The sys_id of the selected walk-up location
+	 * @param {object} range - The date range to get schedule availability.
+	 * @param {string} timeZone - The timezone of the range.
+	 **/
+	function fetchScheduleSpan(range, timeZone) {
+		if (!range || !timeZone) {
+			c.scheduleSpan = [];
+			c.hasSchedule = false;
+			return null;
+		}
+
+		c.server.get({
+			action: c.data.userAction.fetchWeekSchedule,
+			spanRange: range,
+			locationTz: timeZone
+		}).then(function(response) {
+			var schedule = response.data.weekSchedule;
+			var scheduleSpan = formatWalkUpSchedule.formatSchedule(schedule.span, timeZone);
+			c.scheduleSpan = scheduleSpan;
+			c.hasSchedule = schedule.hasSchedule;
+		});
+	}
+
+	/**
+	 * Given the user position, determine whether to render a modal to notify users to
+	 * head over to the walk-up location. Return false when positionNotification is 0.
+	 *
+	 * @param {number} userPosition - The user's current place in line.
+	 **/
+	function shouldNotifyUserPosition(userPosition, previousPosition, positionToNotify) {
+		var positionNotification = parseInt(positionToNotify);
+
+		if (isNaN(positionNotification))
+			return false;
+
+		// Render when the current position is not equal to the previous position,
+		// in order to prevent the modal from displaying twice.
+		return positionNotification &amp;&amp;
+			(userPosition === positionNotification &amp;&amp;
+			 userPosition !== previousPosition);
+	}
+
+	/**
+	 * Fetch the currently waiting users and the currently serviced users.
+	 *
+	 * @param {string} locationId - sysId of the walk-up location associated on this page
+	 **/
+	function fetchQueue(locationId) {
+		walkUpQueue.fetchOnlineWaiting(locationId, c.data.isApptmntEnabled, function(data) {
+			var notEmpty = (data.head.length !== 0 || data.tail.length !== 0);
+
+			// When the current user is in the same place in line as the notification position.
+			if (shouldNotifyUserPosition(data.userPosition, c.previousPosition, c.data.positionNotification))
+				walkUpModal.thresholdModal($scope, data.userPosition);
+
+			// Keep track of user's previous position
+			c.previousPosition = data.userPosition;
+
+			c.waitingList = {
+				firstUpNext: data.head,
+				secondUpNext: data.tail,
+				tailIndex: data.tailStart,
+				notEmpty: notEmpty,
+				userPosition: data.userPosition,
+				renderDivider: data.shouldRenderDivider,
+				waitOption: data.waitOption
+			};
+		});
+
+		walkUpQueue.fetchOnlineServiced(locationId, function(data) {
+			var notEmpty = (data.nowServing.length !== 0);
+			c.nowServing = data.nowServing;
+			c.isServicedListNotEmpty = notEmpty;
+			c.isUserServiced = data.isUserServiced;
+		});
+	}
+
+	//On change listener for other text area
+	function otherIssueChange(otherIssue) {
+		if (otherIssue) {
+			c.server.update();
+		} else {
+			c.data.items = '';
+			c.data.resultsFound = false;
+		}
+	}
+
+	function promptUser(promptHeaderMsg, promptMsg, agreeBtn, clearBtn) {
+		walkUpModal.promptModal($scope, promptHeaderMsg, promptMsg, agreeBtn, clearBtn,
+														clearFields, postQueueChange);
+	}
+
+	function postQueueChange() {
+		c.data.agree = true;
+		c.server.update().then(function() {
+			c.data.showQueuePosition = true;
+			c.data.showQueueName = true;
+			clearFields();
+		});
+	}
+
+	function postLeaveQueueConf() {
+		c.data.agree = true;
+		c.data.isPresentInDiffQueue = false;
+		c.server.update().then(function() {
+			c.data.showLocPicker = false;
+			c.data.showQueuePosition = false;
+			c.data.showQueueName = true;
+			c.data.userPresent = false;
+			clearSearchParams();
+			clearFields();
+		});
+	}
+
+	function clearSearchParams() {
+		c.data.selectedIssueId = '';
+		c.data.otherIssue = '';
+		c.data.showResults = false;
+		c.data.items = '';
+		c.data.resultsFound = false;
+		c.isReasonSelected = false;
+	}
+
+	// Clean the state of the widget after a submission
+	function clearFields() {
+		c.data.isPresentInDiffQueue = false;
+		c.data.specificNotification = false;
+		c.data.newInteraction = false;
+		c.data.recordFound = false;
+		c.data.userSysId = '';
+		c.data.guestRecordFound = false;
+		c.data.action = '';
+		c.data.error = false;
+		c.data.agree = false;
+		c.data.showTextArea = false;
+
+		c.data.empName = {
+			displayValue: '',
+			value: '',
+			name:'empName'
+		};
+	}
+
+	/**
+	 * Reset contextual search results
+	 */
+	function clearCTXSearchResults() {
+		c.data.items = [];
+		c.data.searchText = '';
+		c.data.resultsFound = false;
+	}
+
+	/**
+	 * Fetch contextual search results for a given text
+	 *
+	 * @param {string} searchText
+	 * @return a promise from timeout
+	 */
+	function getCTXSearchResults(searchText) {
+		return $timeout(function() {
+			c.data.searchText = searchText;
+			c.data.action = c.data.userAction.getCTXSearchResults;
+			c.server.update();
+			$anchorScroll();
+		}, 800);
+	}
+
+	/**
+	 * Handler for when an appointment has been successfully created.
+	 * Want to fetch the reschedule widget to render in the UI.
+	 *
+	 * @param {string} apptmntID id of the created appointment
+	 * @param {function} callback to execute if valid appointment is found
+	 */
+	function fetchAppointmentInfo(apptmntID, callback) {
+		c.server.get({
+			action: c.data.userAction.getRescheduleWidget,
+			apptmntID: apptmntID
+		}).then(function(response) {
+
+			setAppointmentTaskState(response.data);
+
+			if (response.data.apptmnt.isValid) {
+				spUtil.addInfoMessage(c.data.msgs.scheduleAppointmentSuccess);
+				// Clear the selected reason made for an appointment
+				c.data.apptmntSelectedReasonId = '';
+				c.isApptmntReasonSelected = false;
+				callback(true);
+			}
+			else {
+				spUtil.addErrorMessage(c.data.msgs.scheduleAppointmentError);
+				callback(false);
+			}
+		});
+	}
+
+	/**
+	 * Convert appointment time in human readable format.
+	 *
+	 * @param {string} dateTime
+	 */
+	function formatApptmntTime(dateTime) {
+		if (dateTime) {
+			var fTime = moment(dateTime).format('MMMM Do h:mma');
+			i18n.getMessage('You have an upcoming appointment scheduled for {0}', function(msg) {
+				c.apptmntMessage = msg.withValues([fTime]);
+			});
+			
+			i18n.getMessage('{0} is the time of your appointment', function(msg) {
+				c.ariaLabelApptmntMessage = msg.withValues([fTime]);
+			});
+		}
+	}
+
+	/**
+	 * Set the client side state to reflect the current state of the users appointment.
+	 *
+	 * @param {Object} data is the payload from the server when calling the action getConfig,
+	 * or getRescheduleWidget
+	 */
+	function setAppointmentTaskState(data) {
+		c.data.userHasAppointment = data.appointmentReselect !== null;
+		c.data.appointmentReselect = data.appointmentReselect;
+		c.data.apptmntIssueLabel = data.apptmnt.description;
+
+		if (c.data.userHasAppointment)
+			formatApptmntTime(data.apptmnt.windowStart);
+	}
+}]]&gt;&lt;/client_script&gt;&lt;controller_as&gt;c&lt;/controller_as&gt;&lt;css&gt;$header: #48494A;
+$sub-header: #777777;
+$text: #555555;
+$currentUser: #E7F7E9;
+$timeWaited: #9E9E9E;
+$border: #D8D8D8;
+$panel-body-danger: #F2DEDA;
+$panel-border-info: #298BD0;
+$panel-body-info: rgba($panel-border-info, 0.1);
+$panel-border-warning: #F0AD4E;
+$nav-bg: #F4F4F4;
+
+$appt-bg-color: #FFFFFF;
+#select_appointment {
+	background-color: $appt-bg-color;
+}
+
+.nav-tabs {
+  background-color: $nav-bg;
+}
+.checkin {
+  width:100%;
+  max-width: 992px;
+  margin-left: auto;
+  margin-right: auto;
+  margin-top: 32px;
+}
+
+.queue-location-header {
+  border-bottom: 1px solid $border;
+  padding-top: 14px;
+  padding-bottom: 14px;
+  padding-left: 30.5px;
+  height: 68px;
+
+  .queue-name {
+    font-size:18px;
+    color:$header;
+    p {
+      margin-bottom: 0;
+      line-height: 36px;
+    }
+  }
+}
+
+.location {
+  max-width:992px;
+  height:161px;
+  border: 1px solid $border;
+  padding-left:30.5px;
+}
+
+.main-frame {
+  border: 1px solid $border;
+  border-radius:4px;
+  max-width:992px;
+  width:100%;
+  margin-bottom:20px;
+}
+
+a.location-change {
+  padding:10px;
+  font-size:14px;
+  max-width:93px;
+  height:18px;
+}
+
+.location-picker {
+  padding-top:10px;
+  padding-bottom:41px;
+  max-width:336px;
+  width:100%;
+  height:36px;
+}
+
+.change-loc-picker {
+  height:36px;
+  width:100%;
+  max-width:336px;
+
+}
+
+a.cancel-location-change {
+  padding:10px;
+  font-size:14px;
+  max-width:93px;
+  height:18px;
+
+}
+
+.selectLocMsg {
+  padding-top:19px;
+  max-width:382px;
+  height:26px;
+  color:$header;
+  opacity:100%;
+  font-size:18px;
+}
+
+.submit-btn-wrapper {
+  height:35px;
+  margin-top:16px;
+}
+
+.section-panel {
+  margin:30.5px;
+}
+
+.form-panel {
+  margin-top: 16px;
+}
+
+.form-container {
+  padding: 8px;
+}
+
+.apptmnt-tab {
+  color: $primary;
+  border: 0;
+  border-bottom: 3px solid $primary;
+  background-color: transparent;
+}
+
+.display-picker {
+  display: flex;
+}
+
+.default-option {
+  color:#CCCCCC;
+  font-size:14px;
+}
+
+.reasons {
+  color: $sub-header;
+  font-size:14px;
+}
+
+.form-header {
+  font-size:18px;
+  color:$header;
+  span {
+    color:$sub-header;
+  }
+}
+
+.reason-msg {
+  margin-top:11px;
+  font-size:14px;
+  color:$sub-header;
+}
+
+.appointment-wrapper {
+  max-width: 336px;
+}
+
+.select-wrapper {
+  max-width:336px;
+  color:#CCCCCC;
+  height:36px;
+
+}
+
+.other-wrapper {
+  height:78px;
+  max-width:336px;
+  resize:none;
+
+}
+
+.wu_header {
+  font-size: 1.40em;
+  max-width: 512px;
+}
+
+.welcome-msg {
+  max-width:420px;
+  font-size:30px;
+  color:$header;
+  width:100%;
+}
+
+.info-msg {
+  max-width:993px;
+  width:100%;
+  height:45px;
+  color:$sub-header;
+}
+
+.search-title {
+  color:$sub-header;
+
+}
+
+.locationMsg {
+  padding-top:25px;
+  color:$sub-header;
+  size:14px;
+  max-width:52px;
+  height:18px;
+}
+
+.position-msg {
+  font-size:18px;
+  color:$header;
+}
+
+.leave-btn{
+  max-width:118px;
+  width:100%;
+  height:35px;
+  border: 1px solid #CCCCCC;
+  margin-bottom: 15px;
+
+}
+
+.panel-wrapper {
+  border-left:1px solid #C6C6C6;
+  border-right:1px solid #C6C6C6;
+  border-top:1px solid #C6C6C6;
+  border-bottom: 0px solid #C6C6C6;
+  background-color:#F4F4F4;
+  height:40px;
+}
+
+.search-results {
+  border:0px solid #C6C6C6;
+  max-width:992.5px;
+}
+
+.leave-msg {
+  font-size:14px;
+  color:$sub-header;
+  text-align:center;
+
+}
+
+.list-wrapper {
+  padding:8px,8px;
+  margin-bottom:0 !important;
+  border-top:0px solid #ddd !important;
+  border-left:1px solid #ddd !important;
+  border-right:1px solid #ddd !important;
+  border-bottom:1px solid #ddd !important;
+  &amp;amp;:first-child{border-top:1px solid #ddd !important}
+}
+
+.form-input {
+  padding-left: 8px;
+}
+
+.header {
+  color: $header;
+}
+.semi-bold {
+  font-weight: 600;
+}
+
+.queue-position {
+  font-size: 80px;
+  line-height: 100px;
+  font-weight: 700;
+  color: $text;
+}
+
+.serviced-banner {
+  margin-top: 65px;
+  margin-bottom: 65px;
+  padding: 0 16px;
+  text-align: center;
+}
+
+.h4 {
+  color: $header;
+}
+
+.h5 {
+  color: $sub-header;
+}
+
+.top-section {
+  color: $text;
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+
+  .queue-container {
+    margin-top: 30.5px;
+  }
+
+  .queue-section {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+    .username {
+      max-width: 205px;
+      word-break: break-all;
+      display: inline-block;
+    }
+
+    .currently-served {
+      min-width: 150px;
+      flex-grow: 1;
+    }
+
+    .up-next {
+      flex-grow: 2;
+      .user-item {
+        display: flex;
+        flex-direction: row;
+        .username {
+          vertical-align: top;
+        }
+        .number {
+          vertical-align: top;
+          display: inline-block;
+        }
+
+        .time {
+          display: inline;
+          color: $timeWaited;
+          min-width: 80px;
+          .icon-calendar {
+            width: 12px;
+            margin-right: 4px;
+          }
+        }
+
+      }
+    }
+  }
+
+  .location-section {
+    flex-grow: 1;
+    min-width: 280px;
+    flex-basis: 40%;
+    line-height: 20px;
+    border-top: solid 1px $border;
+    margin-top: -1px;
+    box-sizing: border-box;
+
+    .location-content-landscape {
+      .padding-left {
+        padding-left: 32px;
+      }
+
+      .padding-bottom {
+        padding-bottom: 32px;
+      }
+
+      .padding-right {
+        padding-right: 32px;
+      }
+      .schedule-summary {
+        display: flex;
+        flex-direction: row;
+        flex-wrap: wrap;
+        box-sizing: border-box;
+        justify-content: start;
+
+        .image-container {
+          max-width: 360px;
+          width: 100%;
+          min-width: 296px;
+          padding-bottom: 32px;
+          flex-basis: 40%;
+          img {
+            width: 100%;
+          }
+        }
+      }
+      .schedule-info {
+        max-width: 360px;
+        min-width: 296px;
+        flex-basis: 60%;
+      }
+    }
+
+    .location-content {
+      margin: 32px;
+      max-width: 520px;
+
+      p.location-description {
+        word-wrap: break-word;
+      }
+
+      .image-container {
+        min-width: 214px;
+        img {
+          width: 100%;
+        }
+        margin: 24px auto;
+      }
+    }
+  }
+}
+
+.padding-left {
+  padding-left: 8px;
+}
+
+.padding-right {
+  padding-right: 8px;
+}
+
+.queue-header {
+  display: flex;
+  flex-direction:row;
+}
+
+.left-section {
+  flex-basis: 60%;
+  flex-grow: 1;
+  border-right: solid 1px $border;
+  margin-right: -1px;
+}
+
+.left-container {
+  flex-basis: 45%;
+}
+
+.right-container {
+  flex-basis: 55%;
+  text-align: right;
+}
+
+hr {
+  border-color: $border;
+}
+
+.current-user {
+  background: $panel-body-info;
+}
+
+.user-item {
+  padding-left: 8px;
+  padding-right: 8px;
+  line-height: 20px;
+
+  .left-container {
+    flex-basis: 75%;
+    padding-right: 8px;
+  }
+  .right-container {
+    flex-basis: 25%;
+  }
+}
+
+.schedule-day {
+  margin-bottom: 2px;
+}
+
+.schedule-entry {
+  display: flex;
+  .day-tag {
+    flex-basis: 30%;
+    padding-right: 8px;
+  }
+  .schedule-tag {
+    flex-basis: 70%;
+  }
+}
+
+.panel-body {
+  p {
+    margin-bottom: 0;
+  }
+}
+.panel-danger {
+  position: relative;
+  border-color: $panel-border-warning;
+  padding-right: 32px;
+}
+
+.panel-info {
+  border-top: none;
+  border-right: none;
+  border-bottom: none;
+  border-left: solid 10px $panel-border-info;
+
+  .panel-body {
+    background-color: $panel-body-info;
+  }
+}
+
+.close-panel {
+  position: absolute;
+  right: 16px;
+  top: 50%;
+  margin-top: -7px;
+  color: $panel-border-warning;
+  cursor: pointer;
+}
+
+.alert-info {
+  margin-bottom: 24px;
+  position: relative;
+  display: inline-block;
+
+  p {
+    color: $sub-header;
+    padding-right: 26px;
+  }
+
+  .close-alert {
+    position: absolute;
+    right: 16px;
+
+    &amp;amp;:before {
+      font-size: 10px;
+    }
+
+    margin-top: -10px;
+    top: 50%;
+    cursor: pointer;
+  }
+}
+
+.reason-text {
+  margin-top: -16px;
+}
+
+/** CSS Overrides for appointment widget code **/
+#appt-reselect-widget {
+  .panel-heading {
+    display: none;
+  }
+
+  .panel {
+    box-shadow: none !important;
+    border: none !important;
+
+    .panel-body {
+      padding: 0px;
+
+      .appointment-duration {
+        &amp;gt; span {
+          display: flex;
+          flex-direction: column-reverse;
+          align-items: flex-start;
+
+          .pull-right {
+            display: inline-block;
+            border: 1px solid #CCCCCC;
+            border-radius: 3px;
+            padding: 6px 12px;
+            margin-bottom: 16px;
+          }
+        }
+      }
+    }
+  }
+}
+
+#appt-select-widget {
+  span.fa, label {
+    display: none;
+  }
+}
+&lt;/css&gt;&lt;data_table&gt;sp_instance&lt;/data_table&gt;&lt;demo_data/&gt;&lt;description/&gt;&lt;docs/&gt;&lt;field_list/&gt;&lt;has_preview&gt;true&lt;/has_preview&gt;&lt;id&gt;online-check-in-experience&lt;/id&gt;&lt;internal&gt;false&lt;/internal&gt;&lt;link/&gt;&lt;name&gt;Online check-in experience&lt;/name&gt;&lt;option_schema&gt;[{"hint":"","name":"max_search_results","section":"Data","default_value":"5","label":"Max search results","type":"integer"}]&lt;/option_schema&gt;&lt;public&gt;false&lt;/public&gt;&lt;roles/&gt;&lt;script&gt;&lt;![CDATA[(function() {
+	var m = data.msgs = {};
+	var userId, userIssue, userIssueId;
+	var otherIssue = "";
+	var queueName = '';
+
+	m.aboutLocation = gs.getMessage('About this location');
+	m.agreeModalMsg = gs.getMessage('I still want to leave this queue');
+	m.agreeSwitchModalMsg = gs.getMessage('I still want to join this queue');
+	m.cancelMsg = gs.getMessage('Cancel');
+	m.cancelModalMsg = gs.getMessage('Nevermind, return to main screen');
+	m.stayInQueueMsg = gs.getMessage('I want to stay in this queue');
+	m.stayInOtherQueueMsg = gs.getMessage('I want to stay in the other queue');
+	m.catalogRequestMsg = gs.getMessage('Related content that may help with your issue');
+	m.changeLocationMsg = gs.getMessage('Change location');
+	m.closed = gs.getMessage('closed');
+	m.currentAway = gs.getMessage('Currently away');
+	m.currentClosed = gs.getMessage('Currently closed');
+	m.currentServiced = gs.getMessage('Now serving');
+	m.dialogCancel = gs.getMessage('Cancel');
+	m.dialogOk = gs.getMessage('Ok');
+	m.differentQueueHeaderMsg = gs.getMessage('You are present in a different queue.');
+	m.differentQueueInfoMsg = gs.getMessage('Are you sure you want to remove yourself from the other queue and join this queue?');
+	m.disagreeMsg = gs.getMessage('No');
+	m.employeeGreeting = gs.getMessage('What is your reason for visiting?');
+	m.emptyQueueMsg = gs.getMessage('The queue is currently empty');
+	m.errorMsg = gs.getMessage('Sorry, looks like something went wrong. Please check the logs.');
+	m.issueMsg = gs.getMessage('Select a reason for your visit');
+	m.leaveQueueBtn = gs.getMessage('Leave queue');
+	m.leaveQueueHeaderMsg = gs.getMessage('Are you sure you want to leave the queue?');
+	m.leaveQueueInfoMsg = gs.getMessage('You will lose your place in line.');
+	m.locationMsg = gs.getMessage('Location');
+	m.loungeHours = gs.getMessage('This weeks hours of operation:');
+	m.nowServiced = gs.getMessage('A technician is ready to assist you');
+	m.otherfieldMsg = gs.getMessage('Short Description');
+	m.queueInvite = gs.getMessage('Join the queue');
+	m.queuePosition = gs.getMessage('Your queue position');
+	m.queueStatus = gs.getMessage('Queue status');
+	m.selectLocMsg = gs.getMessage('Select a tech lounge below to get started');
+	m.serviceMsg = gs.getMessage('Need service? Select a location and reason for visit below to join a walk-up queue.');
+	m.submitMsg = gs.getMessage('Check in');
+	m.textAreaLabel = gs.getMessage('Other');
+	m.checkInTime = gs.getMessage('Check-in Time');
+	m.upNext = gs.getMessage('Up next');
+	m.welcomeMsg = gs.getMessage('Welcome to the walk-up check-in');
+	m.userUnknown = gs.getMessage('Unknown');
+	m.bookAppointment = gs.getMessage('Schedule an appointment');
+	m.scheduleAppointment = gs.getMessage('Schedule appointment');
+	m.scheduleAppointmentSuccess = gs.getMessage('You have successfully scheduled an appointment');
+	m.scheduleAppointmentError = gs.getMessage('Unable to schedule an appointment');
+	m.rescheduleYourAppointment = gs.getMessage('Click to reschedule your appointment');
+	var u = data.user = {};
+	u.employee = 'employee';
+
+	var a = data.userAction = {};
+	a.getConfig = 'GET_CONFIG';
+	a.getLocation = 'GET_LOCATION';
+	a.fetchWeekSchedule = 'GET_SCHEDULE_SPAN';
+	a.getRescheduleWidget = 'GET_RESCHEDULE_WIDGET';
+	a.getCTXSearchResults = "CTX_SEARCH";
+
+//TO-DO: Verify if constants still needed here.
+	var CONSTANTS = sn_walkup.WalkUpConstants;
+	//Define variables that are used in GlideRecord query here
+	var NEW = 'new';
+	var QUEUED = 'queued';
+	var WORK_IN_PROGRESS = 'work_in_progress';
+	var CLOSED_ABANDONED = 'closed_abandoned';
+	var WALK_UP_CHANNEL = 'e3c2a22eb3b203002186a72256a8dc71'; // walkup interaction_connector
+	var QUEUE_TABLE ='wu_location_queue';
+	var INTERACTION_TABLE = 'interaction';
+	var USER_TABLE = 'sys_user';
+	var LOCATION = 'cmn_location';
+	var ATTACHMENT_TABLE = 'sys_attachment';
+	var WALKUP_TYPE = 'walkup';
+
+	//InteractionFacade created as part of the script include will be used to create interactions as well as creating wu_context
+	var facade = new sn_walkup.ExtPointUtil().loadExtension("InteractionFacade");
+	var WalkUpUtil = new sn_walkup.ExtPointUtil().loadExtension("WalkUpUtil");
+	var AppointmentFacade = new sn_walkup.ExtPointUtil().loadExtension("AppointmentFacade");
+
+	var is_online_checkin = true;
+	var queueId = $sp.getParameter('location_id');
+
+	//If location_id is present in the URL, get the corresponding queue name to display.
+	if (queueId) {
+		data.queue_name = WalkUpUtil.getQueueName(queueId);
+		data.queue_location_id = facade.getQueueLocation(queueId);
+	}
+	if (input) {
+		handleInput();
+	}
+
+	function handleInput() {
+		userId = gs.getUserID();
+
+		if (input.action === a.fetchWeekSchedule) {
+			var spanRange = input.spanRange;
+			var locationTz = input.locationTz;
+			data.weekSchedule = fetchWeekSchedule(queueId, spanRange, locationTz);
+		}
+
+		if (input.action === a.getConfig) {
+			var config = WalkUpUtil.fetchQueueConfig(queueId);
+
+			data.positionNotification = config.notificationThreshold;
+			data.reasonList = WalkUpUtil.fetchReasonConfig(queueId);
+			data.queue_threshold = config.notificationThreshold;
+			data.enableCheckIn = config.enableOnlineCheckIn;
+			data.closedMessage = config.closedMessage;
+			data.awayMessage = config.awayMessage;
+			data.lastCheckIn = config.lastCheckIn;
+			data.phoneNumber = config.phoneNumber;
+			data.recordProducer = config.recordProducer;
+			data.isApptmntEnabled = config.isApptmntEnabled;
+
+			data.location = getLocationDetails(queueId);
+			data.locationTimeZone = WalkUpUtil.fetchLocationTimeZone(queueId);
+			data.noteScheduleMsg = gs.getMessage('Check-ins will end {0} minutes before closing time.', data.lastCheckIn);
+			data.cmnLocationId = config.locationId;
+			data.currentUser = gs.getUserID();
+			data.catalogID = config.appointmentCatalogId;
+
+			if (data.catalogID) {
+				data.currentUser = gs.getUserID();
+				data.apptmnt = AppointmentFacade.fetchTaskRecord(data.currentUser, queueId);
+
+				data.appointmentSelect = getApptSelectWidget(data.catalogID, config.cmnLocationId, data.currentUser);
+
+				setApptmntReselectState(data.apptmnt, data.catalogID);
+
+				data.hasAppointmentBooking = true;
+			} else {
+				data.hasAppointmentBooking = false;
+			}
+
+			return;
+		}
+
+		if (input.action === a.getRescheduleWidget) {
+			var catalogID = WalkUpUtil.fetchCatalogID(queueId);
+
+			if (catalogID) {
+				data.apptmnt = AppointmentFacade.fetchTaskRecordByID(input.apptmntID);
+				setApptmntReselectState(data.apptmnt, catalogID);
+
+			}
+		}
+
+		if (input.action === a.getCTXSearchResults) {
+			data.items = getSearchResults(input.searchText);
+		}
+
+		if (input.selectedIssueTextEntry) {
+			otherIssue = input.checkInSearchText;
+		}
+
+		userIssueId = input.selectedIssueId;
+
+		/* On confirmation from user -
+			 1. If user confirms to leave the queue, mark current record as closed_abandoned.
+			 2. If user is present in a different queue and confirms to get in the current queue, mark previous record as closed_abandoned
+			 and open a new interaction for the user.
+		*/
+		if (input.agree) {
+
+			var gr = new GlideRecord(CONSTANTS.INTERACTION_TABLE);
+			if (gr.isValid()) {
+				gr.addActiveQuery();
+				gr.addQuery('type', WALKUP_TYPE);
+				gr.addQuery('opened_for', userId);
+				gr.addQuery('state', NEW).addOrCondition('state', WORK_IN_PROGRESS);
+				gr.query();
+
+				if (gr.next()) {
+					gr.setValue('state', CONSTANTS.INTERACTION_STATES.CLOSED_ABANDONED);
+					gr.update();
+				}
+			}
+			if (input.isPresentInDiffQueue)
+				facade.createEmpInteraction(userId, queueId, userIssueId, otherIssue, is_online_checkin);
+		}
+
+		if (input.action === a.getLocation)
+			//Get the location closest to user.
+			data.closest_location_id = getClosestWalkUpLocation();
+		else if (input.action === u.employee)
+			determineCheckInStatus(userId, queueId, userIssueId, otherIssue, is_online_checkin);
+	}
+
+	function getQueueName() {
+		var queueGR = new GlideRecord(CONSTANTS.LOCATION_QUEUE_TABLE);
+		queueGR.addActiveQuery();
+		queueGR.addQuery('sys_id',queueId);
+		queueGR.query();
+		while(queueGR.next()) {
+			queueName = queueGR.getValue('name');
+		}
+		return queueName;
+	}
+
+	function determineCheckInStatus(userId, queueId, userIssueId, otherIssue, isOnlineCheckIn) {
+		try {
+			var interactionGR1 = new GlideRecord(CONSTANTS.INTERACTION_TABLE);
+
+			if (!interactionGR1.isValid()) {
+				return false;
+			}
+
+			interactionGR1.addActiveQuery();
+			interactionGR1.addQuery('type', WALKUP_TYPE);
+			interactionGR1.addQuery('location', facade.getQueueLocation(queueId));
+			interactionGR1.addQuery('state', NEW).addOrCondition('state', WORK_IN_PROGRESS);
+			interactionGR1.query();
+
+			// Check if the user is already in the current queue
+			while(interactionGR1.next()) {
+				if (userId !== interactionGR1.getValue('opened_for'))
+					continue;
+
+				// If the user is in the current queue return information of his request
+				data.currentRec = interactionGR1.getRowCount();
+				data.userPresent = true;
+				var util = new sn_walkup.ExtPointUtil().loadExtension("WalkUpUtil");
+				var parsedResult = util.parseContext(interactionGR1);
+				var reason = parsedResult.reason;
+				var reasonDescription = parsedResult.reason_description;
+
+				if (reasonDescription) {
+					data.items = getSearchResults(reasonDescription);
+					data.showResults = true;
+				}
+				else if (reason) {
+					data.items = getSearchResults(reason);
+					data.showResults = true;
+				}
+
+				return true;
+			}
+
+			// At this point the user is not in the current queue
+			interactionStats(queueId, input.queue_threshold);
+
+			// Check if the user exists in the current queue or in a different queue
+			var gr2 = new GlideRecord(CONSTANTS.INTERACTION_TABLE);
+
+			if (!gr2.isValid()) {
+				return false;
+			}
+
+			gr2.addActiveQuery();
+			gr2.addQuery('type', WALKUP_TYPE);
+			gr2.addQuery('state', NEW).addOrCondition('state', WORK_IN_PROGRESS);
+			gr2.addQuery('opened_for', userId);
+			gr2.query();
+
+			if (gr2.next()) {
+				var location = gr2.getValue('location');
+				if (location === facade.getQueueLocation(queueId)) {
+					data.recordFound = true;
+				}
+				else if (location !== facade.getQueueLocation(queueId)) {
+					data.isPresentInDiffQueue = true;
+					var duplicateQueueId = WalkUpUtil.getQueueFromLocation(gr2.getValue('location'));
+					m.differentQueueInfoMsg = gs.getMessage('Are you sure you want to remove yourself from the {0} queue and join this queue?', [WalkUpUtil.getQueueName(duplicateQueueId)]);
+				}
+			}
+			else {
+				data.showQueuePosition = true;
+				data.newInteraction = true;
+
+				if (userIssueId) {
+					facade.createEmpInteraction(userId, queueId, userIssueId, otherIssue, isOnlineCheckIn);
+				}
+			}
+		}
+		catch (e) {
+			data.error = true;
+			gs.error('Online walk-up widget - Error occured.' + e);
+		}
+	}
+
+	/**
+	 * Check if the image that is attatched on the walk-up location still exists in the sys_attachment table
+	 *
+	 * @param {string} imageId - The sys_id of the attached image.
+	 */
+	function doesImageExist(imageId) {
+		try {
+			var attachmentRecord = new GlideRecord(CONSTANTS.ATTACHMENT_TABLE);
+			return attachmentRecord.get(imageId);
+		}
+		catch(e) {
+			gs.error('Online walk-up widget - Error occured in checkIfImageExist.' + e);
+		}
+	}
+
+	function getLocationDetails(locationId) {
+		var location = {};
+		var locationRecord = new GlideRecord(CONSTANTS.LOCATION_QUEUE_TABLE);
+		locationRecord.get(locationId);
+
+		$sp.getRecordValues(location, locationRecord, 'name, description, location_image, closed_message, away_message, enable_online_checkin, max_search_results');
+
+		// Ensure that image still exist in the sys_attachment table.
+		if (!doesImageExist(location.location_image))
+			location.location_image = null;
+
+		return location;
+	}
+
+	function formatWeekTimeSpan(list) {
+		return list.map(function(item) {
+			return {
+				start: item.getStart() + '',
+				end: item.getEnd() + ''
+			};
+		});
+	}
+
+	/**
+	 * Fetch all available hours of operation within the given scheduleRange and timezone.
+	 *
+	 * @param {string} sysId - The sys_id of the walk-up location.
+	 * @param {object} scheduleRange - The start and end range for the schedule span to be returned.
+	 * @param {string} tz - The timezone of the scheduleRange.
+	 *
+	 * @return {object} - Returns the schedule information.
+	 */
+	function fetchWeekSchedule(sysId, scheduleRange, tz) {
+		var scheduleEntries = {};
+		var spanList = [];
+
+		scheduleEntries.span = [];
+		scheduleEntries.error = false;
+		scheduleEntries.hasSchedule = true;
+
+		try {
+			var locationRecord = new GlideRecord(CONSTANTS.LOCATION_QUEUE_TABLE);
+			locationRecord.get(sysId);
+
+			var schedule = new GlideSchedule();
+			var scheduleId = locationRecord.getValue('schedule');
+
+			schedule.load(scheduleId);
+
+			if (!schedule.isValid()) {
+				scheduleEntries.hasSchedule = false;
+				return scheduleEntries;
+			}
+
+			var start = new GlideDateTime(scheduleRange.start);
+			var end = new GlideDateTime(scheduleRange.end);
+
+			var scheduleTimeSpan = schedule.getTimeMap(start, end, tz);
+
+			// Build a list of schedule spans of availabilities
+			while (scheduleTimeSpan.hasNext()) {
+				spanList.push(scheduleTimeSpan.next());
+			}
+
+			scheduleEntries.span = formatWeekTimeSpan(spanList);
+		}
+		catch(e) {
+			gs.error('Online walk-up widget - Error occured while fetching a walk up location queue schedule.' + e);
+		}
+
+		return scheduleEntries;
+	}
+
+	function getSearchResults(keywords) {
+		/* Perform contextual search only if there is search config defined in
+			 wu_location_queue.
+		 */
+		try {
+			var util = new sn_walkup.ExtPointUtil().loadExtension("WalkUpUtil");
+			var config = util.fetchQueueConfig(queueId);
+			data.search_config = config.searchConfig;
+			data.max_results = config.maxSearchResults;
+
+			//Show contextual search results only when there is a config and number of results is not 0.
+			if (data.search_config &amp;&amp; data.max_results!== '0') {
+
+				var payload = {
+					context :  data.search_config,
+					query : {
+						freetext: keywords
+					}
+				};
+
+				var results = [];
+				var request = new global.cxs_SearchAPI();
+				var response = request.search(payload);
+
+				//Perform additional computation only if relevant results are returned.
+				if (response.results.length &gt; 0) {
+					for (var i in  response.results) {
+						if (response.results[i].related_links) {
+							var sp_link = JSON.stringify(response.results[i].related_links[0].sp_link).replace(/['"]+/g, '');
+							item = {
+								link :'sp'+sp_link,
+								short_description:response.results[i].title,
+								link_source:response.results[i].meta.source
+							}
+						} else {
+							item = {
+								short_description:response.results[i].title,
+								link : response.results[i].link,
+								link_source:response.results[i].meta.source
+							}
+						}
+						results.push(item);
+					}
+
+				}
+				if (response.results.length) {
+					data.resultsFound = true;
+				} else {
+					data.resultsFound = false;
+				}
+
+				return results;
+
+			}
+		} catch (err) {
+			data.error = true;
+			gs.error('Online walk-up widget - Error occured while fetching contextual search results.' + err);
+		}
+	}
+
+	function interactionStats (queueId, queue_threshold) {
+		var gr1 = new GlideRecord("interaction");
+		if (gr1.isValid()) {
+			gr1.addActiveQuery();
+			gr1.addQuery('state', NEW);
+			gr1.addQuery('location', facade.getQueueLocation(queueId));
+			gr1.addQuery('type', WALKUP_TYPE);
+			gr1.query();
+			data.currentRec = gr1.getRowCount() + 1 ;
+			if (gr1.next()) {
+				if (data.currentRec &gt; Math.abs(queue_threshold)) {
+					data.specificNotification = true;
+				}
+			}
+		}
+	}
+
+	function getIssueLabel(choiceValue, choiceList) {
+		for (var i = 0, len = choiceList.length; i &lt; len; i++) {
+			if (choiceList[i].value === choiceValue ) {
+				return choiceList[i].label;
+			}
+		}
+	}
+
+	/* Returns sys_id of the closest location to the user. The computation is based on users geo location specified in sys_user
+	   table with a refernce to cmn_location.
+	 */
+	function getClosestWalkUpLocation() {
+		try {
+			var walkUpRecord = new GlideRecord(CONSTANTS.LOCATION_QUEUE_TABLE);
+			var walkUpLocationList = [];
+			var walkUpFields = {};
+			walkUpRecord.addActiveQuery();
+			walkUpRecord.query();
+
+			while (walkUpRecord.next()) {
+				$sp.getRecordValues(walkUpFields, walkUpRecord,'sys_id,name,location');
+				var coordinates = {
+					sys_id: walkUpFields.sys_id,
+					displayValue: walkUpFields.name,
+					value: walkUpFields.sys_id,
+					assignmentGroup: walkUpFields.location,
+					latitude: walkUpRecord.location.latitude,
+					longitude: walkUpRecord.location.longitude
+				};
+				walkUpLocationList.push(coordinates);
+			}
+
+			var userCoordinates = getUserGeoLocation();
+			var closestLocation = findClosestCoordinate(userCoordinates, walkUpLocationList);
+			return closestLocation.sys_id;
+		} catch(err) {
+			data.error = true;
+			gs.error('Online walk-up widget - Error occured while computing closest walk-up location.' + err);
+		}
+
+	}
+
+	/* Returns the current logged in users longitude and latitude coordinates. These are stored in cmn_lcoation.
+		 User does not need to specify the lat, long coordinates explicitly. This is computed by a business rule on cmn_location table.
+	 */
+	function getUserGeoLocation() {
+		try {
+			var userSysId = gs.getUserID();
+			var userObject = new GlideRecord(CONSTANTS.USER_TABLE);
+			userObject.get(userSysId);
+			var locationSysId = userObject.location;
+			var locationObject = new GlideRecord(CONSTANTS.FIELDS.CMN_LOCATION);
+			locationObject.get(locationSysId);
+
+			return {
+				longitude: locationObject.longitude,
+				latitude: locationObject.latitude
+			};
+		} catch(err) {
+			data.error = true;
+			gs.error('Online walk-up widget - Error occured while fetching users geo location.' + err);
+		}
+
+	}
+
+	/* Compares users coordinates with each of the locations in wu_location_qeueue table and finally finds the location that
+		 is closest to the user. Reference - Geolocation plugin
+	 */
+	function findClosestCoordinate(userCoord, coordArr) {
+		try {
+			var min = Number.MAX_VALUE;
+			var distance = 0;
+			var result = {};
+
+			coordArr.forEach(function(coord) {
+				distance = getTwoPointsDistance(userCoord.latitude, userCoord.longitude, coord.latitude, coord.longitude);
+				if (distance &lt; min) {
+					min = distance;
+					result = coord;
+				}
+			});
+			return result;
+		} catch (err) {
+			data.error = true;
+			gs.error('Online walk-up widget- Error occured while computing closest coordinate.' + err);
+		}
+
+	}
+
+	function getTwoPointsDistance (p1Lat, p1Long, p2Lat, p2Long) {
+		try {
+			var R = 6371; // Radius of the Earth in km
+			var dLat = (p2Lat - p1Lat) * Math.PI / 180;
+			var dLon = (p2Long - p1Long) * Math.PI / 180;
+			var a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+					Math.cos(p1Lat * Math.PI / 180) * Math.cos(p2Lat * Math.PI / 180) *
+					Math.sin(dLon / 2) * Math.sin(dLon / 2);
+			var c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+			var d = R * c;
+			return d; // returns the distance between p1 and p2 in kilometer
+		} catch (err) {
+			data.error = true;
+			gs.error('Online walk-up widget - Error occured while computing two point distance.' + err);
+		}
+
+	}
+
+	/**
+	 * Se the variables to the state of the appointment task
+	 *
+	 * @param {Object} apptmnt
+	 * @param {string} catalogID
+	 */
+	function setApptmntReselectState(apptmnt, catalogID) {
+		data.appointmentReselect = null;
+
+		if (apptmnt.isValid) {
+			data.appointmentReselect = getReselectWidget(apptmnt.sysId, catalogID);
+		}
+	}
+
+	/**
+	 * Returns the appointment booking widget
+	 *
+	 * @param {Object} apptmnt that contains information to get the reselect widget
+	 * @returns the service portal appointment booking reselect widget or null
+	 */
+	function getReselectWidget(apptmntID, catalogID) {
+		if (apptmntID &amp;&amp; catalogID) {
+			return $sp.getWidget('sn-appointment-booking-reselect', {
+				catalog_item: catalogID,
+				table: "wu_appointment",
+				task: apptmntID
+			});
+		}
+		return null;
+	}
+
+	/**
+	 * Fetch the widget that allows users to create select a time slot for an appointment
+	 *
+	 * @param {string} catalogID - sys_id of the record producer associated with this appointment booking
+	 * @param {string} locationID - sys_id of the cmn_location
+	 * @param {string} userID - sys_id of sys_user
+	 */
+	function getApptSelectWidget(catalogID, locationID, userID) {
+		if (catalogID) {
+			return $sp.getWidget('sn-appointment-booking-select', {
+				catalog_item: catalogID,
+				location: locationID,
+				opened_for: userID
+			});
+		}
+		return null;
+	}
+})();]]&gt;&lt;/script&gt;&lt;servicenow&gt;true&lt;/servicenow&gt;&lt;sys_class_name&gt;sp_widget&lt;/sys_class_name&gt;&lt;sys_created_by&gt;daryljohn.rodrigues&lt;/sys_created_by&gt;&lt;sys_created_on&gt;2018-01-26 18:53:36&lt;/sys_created_on&gt;&lt;sys_id&gt;f84cfc133b7303001d132c2b54efc476&lt;/sys_id&gt;&lt;sys_mod_count&gt;2513&lt;/sys_mod_count&gt;&lt;sys_name&gt;Online check-in experience&lt;/sys_name&gt;&lt;sys_package display_value="Walk-up Experience" source="sn_walkup"&gt;1da803b9b3b10300f686a72256a8dcbc&lt;/sys_package&gt;&lt;sys_policy/&gt;&lt;sys_scope display_value="Walk-up Experience"&gt;1da803b9b3b10300f686a72256a8dcbc&lt;/sys_scope&gt;&lt;sys_update_name&gt;sp_widget_f84cfc133b7303001d132c2b54efc476&lt;/sys_update_name&gt;&lt;sys_updated_by&gt;admin&lt;/sys_updated_by&gt;&lt;sys_updated_on&gt;2018-10-16 19:59:13&lt;/sys_updated_on&gt;&lt;template&gt;&lt;![CDATA[&lt;div class="checkin"&gt;
+  &lt;!--Schedule widget --&gt;
+  &lt;div ng-hide="true"&gt;
+    &lt;sp-widget widget="c.data.scheduleWidget"&gt;&lt;/sp-widget&gt;
+  &lt;/div&gt;
+  &lt;div&gt;
+    &lt;h1 class="welcome-msg"&gt;{{data.msgs.welcomeMsg}}&lt;/h1&gt;
+    &lt;p class="info-msg"&gt;{{data.msgs.serviceMsg}}&lt;/p&gt;
+  &lt;/div&gt;
+  &lt;div class="location" ng-if="c.data.showPicker &amp;&amp; !c.data.showQueuePosition"&gt;
+    &lt;p class="selectLocMsg"&gt;{{data.msgs.selectLocMsg}}&lt;/p&gt;
+    &lt;label for="location-dropdown" class="locationMsg"&gt;{{data.msgs.locationMsg}}&lt;/label&gt;
+    &lt;sn-record-picker class="location-picker"
+                      id="location-dropdown"
+                      field="c.data.locId"
+                      ng-change="c.server.update()"
+                      on-change="c.setLocation(val)"
+                      table="'wu_location_queue'"
+                      display-field="'name'"
+                      placeholder="${Select a lounge location}"
+                      value-field="'sys_id'"
+                      search-fields="'name'"
+                      page-size="100"
+                      default-query="'active=true'"&gt;
+    &lt;/sn-record-picker&gt;
+  &lt;/div&gt;
+
+  &lt;!--Checkin, queue and location goes here--&gt;
+  &lt;div ng-show="!c.isLoading(c.data.scheduleWidget.data.schedule, c.data.locationId, c.waitingList)" class="main-frame" ng-if="c.data.locationId"&gt;
+    &lt;!-- Display queue name and give user ability to change the location --&gt;
+    &lt;div class="queue-location-header"&gt;
+      &lt;div class="queue-name" ng-if="c.data.showQueueName"&gt;
+        &lt;p&gt; {{c.location.name}}
+          &lt;a class="location-change" ng-click="c.showLocPicker()" href=""&gt;{{data.msgs.changeLocationMsg}}&lt;/a&gt;
+        &lt;/p&gt;
+      &lt;/div&gt;
+      &lt;div class="display-picker" ng-if="c.data.showLocPicker"&gt;
+        &lt;label hidden for="location-dropdown"&gt;{{data.msgs.locationMsg}}&lt;/label&gt;
+        &lt;sn-record-picker class="change-loc-picker"
+                          id="location-dropdown"
+                          field="c.data.locId"
+                          ng-change="c.server.update()"
+                          on-change="c.setLocation(val)"
+                          table="'wu_location_queue'"
+                          display-field="'name'"
+                          placeholder="${Select a lounge location}"
+                          value-field="'sys_id'"
+                          search-fields="'name'"
+                          page-size="100"
+                          default-query="'active=true'"&gt;
+        &lt;/sn-record-picker&gt;
+        &lt;a class="cancel-location-change" ng-click="c.showQueueName()" href=""&gt;{{data.msgs.cancelMsg}}&lt;/a&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+
+    &lt;!--Employee Check in code--&gt;
+    &lt;div class="top-section"&gt;
+      &lt;div class="left-section"&gt;
+        &lt;ul class="nav nav-tabs" ng-if="c.data.enableOnlineCheckIn || c.data.hasAppointmentBooking" &gt;
+          &lt;li class="item" ng-if="c.data.enableOnlineCheckIn"&gt;
+            &lt;a ng-click="c.toggleCheckInPanel()" ng-class="{'apptmnt-tab': c.checkInPanel}" href="javascript:void(0)"&gt;
+              {{data.msgs.queueInvite}}
+            &lt;/a&gt;
+          &lt;/li&gt;
+          &lt;li class="item" ng-if="c.data.hasAppointmentBooking"&gt;
+            &lt;a ng-click="c.toggleAppointmentPanel()" ng-class="{'apptmnt-tab': !c.checkInPanel}" href="javascript:void(0)"&gt;
+              {{data.msgs.bookAppointment}}
+            &lt;/a&gt;
+          &lt;/li&gt;
+        &lt;/ul&gt;
+
+        &lt;div class="section-panel"&gt;
+          &lt;div class="form-panel"&gt;
+
+            &lt;!-- Check-in / Appointment Panel --&gt;
+            &lt;div ng-show="c.checkInPanel"&gt;
+              &lt;div class="form-container"&gt;
+
+                &lt;div ng-if="c.data.hasAppointmentBooking &amp;&amp; c.data.userHasAppointment &amp;&amp; c.showAppointmentAlert" class="alert alert-info"&gt;
+                  &lt;p ng-attr-aria-label="{{c.ariaLabelApptmntMessage}}"&gt;
+                    {{c.apptmntMessage}}
+                  &lt;/p&gt;
+                  &lt;a class="close-alert icon-cross" ng-click="c.closeAppointmentAlert()" aria-label="${Close appointment alert}" href="javascript:void(0)"&gt;&lt;/a&gt;
+                &lt;/div&gt;
+
+                &lt;div ng-if="(!c.waitingList.userPosition &amp;&amp; !c.isUserServiced)"&gt;
+                  &lt;div class="wu_header"&gt;
+                    &lt;p class="form-header"&gt;
+                      {{data.msgs.queueInvite}}
+                      &lt;span ng-if="c.isAway(c.data.scheduleWidget.data.schedule)"&gt;({{data.msgs.currentAway}})&lt;/span&gt;
+                      &lt;span ng-if="c.isClosed(c.data.scheduleWidget.data.schedule)"&gt;({{data.msgs.currentClosed}})&lt;/span&gt;
+                    &lt;/p&gt;
+                    &lt;p ng-if="c.displayCheckIn(c.data.scheduleWidget.data.schedule)" class="reason-msg"&gt;{{data.msgs.employeeGreeting}}&lt;/p&gt;
+                  &lt;/div&gt;
+                  &lt;!--End of reason invite message --&gt;
+
+                  &lt;!-- MSG directive --&gt;
+                  &lt;online-schedule-message message="c.data.scheduleMessage"
+                                           schedule="c.data.scheduleWidget.data.schedule"
+                                           phone-number="c.data.phoneNumber"
+                                           record-producer="c.data.recordProducer"&gt;
+                  &lt;/online-schedule-message&gt;
+
+                  &lt;!-- reason drop down plus other text-area --&gt;
+                  &lt;div ng-if="c.displayCheckIn(c.data.scheduleWidget.data.schedule)"&gt;
+                    &lt;reason-for-visit-select issue-choices="c.data.issueChoices"
+                                             placeholder="data.msgs.issueMsg"
+                                             get-search-results="c.getCheckInCTXSearchResults(searchText)"
+                                             select-reason="c.onReasonSelect(reason)"&gt;
+                    &lt;/reason-for-visit-select&gt;
+
+                    &lt;div class="wu-submit"&gt;
+                      &lt;button type="button" ng-disabled="c.empCheckinBtnDisabled()" class="btn btn-primary submit-btn-wrapper" ng-click="c.submitEmployeeRequest()"&gt;
+                        {{data.msgs.submitMsg}}
+                      &lt;/button&gt;
+                    &lt;/div&gt;
+                  &lt;/div&gt;
+                &lt;/div&gt;
+
+
+                &lt;!--Position in the queue --&gt;
+                &lt;div ng-if="c.waitingList.userPosition || c.isUserServiced"&gt;
+                  &lt;p class="position-msg"&gt; {{data.msgs.queuePosition}} &lt;/p&gt;
+                  &lt;!-- Message directive --&gt;
+                  &lt;online-schedule-message message="c.data.scheduleMessage"
+                                           schedule="c.data.scheduleWidget.data.schedule"
+                                           phone-number="c.data.phoneNumber"
+                                           record-producer="c.data.recordProducer"&gt;
+                  &lt;/online-schedule-message&gt;
+                  &lt;div ng-if="c.waitingList.userPosition"&gt;
+                    &lt;h2 class="queue-position padding-left"&gt;
+                      #{{c.waitingList.userPosition}}
+                    &lt;/h2&gt;
+                  &lt;/div&gt;
+                  &lt;div ng-if="!c.isUserServiced" class="wu_leave_btn"&gt;
+                    &lt;button type="button" class="btn leave-btn" ng-click="c.leaveQueue()"&gt;
+                      &lt;p class="leave-msg"&gt;{{data.msgs.leaveQueueBtn}}&lt;/p&gt;
+                    &lt;/button&gt;
+                  &lt;/div&gt;
+                &lt;/div&gt;
+                &lt;h2 class="h3 semi-bold serviced-banner" ng-if="c.isUserServiced"&gt;
+                  {{data.msgs.nowServiced}}
+                &lt;/h2&gt;
+
+              &lt;/div&gt;
+              &lt;div ng-include="'queueTemplate'"&gt;&lt;/div&gt;
+            &lt;/div&gt;
+          &lt;/div&gt;
+          &lt;!-- END of Check-in Panel --&gt;
+
+          &lt;!-- Appointment panel --&gt;
+          &lt;div class="form-container" ng-show="!c.checkInPanel" ng-if="c.data.hasAppointmentBooking"&gt;
+            &lt;walk-up-appointment appointment-reselect="c.data.appointmentReselect"
+                                 appointment-select="c.data.appointmentSelect"
+                                 button-msg="c.data.msgs.scheduleAppointment"
+                                 reason-msg="c.data.msgs.employeeGreeting"
+                                 reschedule-msg="c.data.msgs.rescheduleYourAppointment"
+                                 header-msg="c.data.msgs.bookAppointment"
+                                 is-reason-selected="c.isApptmntReasonSelected"
+                                 create-appointment="c.createAppointment(snAppointment, callback)"&gt;
+
+              &lt;reason-text&gt;${Reason}:&amp;nbsp;{{c.data.apptmntIssueLabel}}&lt;/reason-text&gt;
+              &lt;reason-for-visit-select
+                                       issue-choices="c.data.issueChoices"
+                                       placeholder="data.msgs.issueMsg"
+                                       get-search-results="c.getApptmntCTXSearchResults(searchText)"
+                                       select-reason="c.onApptmntReasonSelect(reason)"&gt;
+              &lt;/reason-for-visit-select&gt;
+
+            &lt;/walk-up-appointment&gt;
+          &lt;/div&gt;
+        &lt;/div&gt;
+      &lt;/div&gt;
+      &lt;!-- END of Check-in panel --&gt;
+      &lt;!-- END of Left Section --&gt;
+      &lt;div class="location-section " ng-include="'scheduledHours'"&gt;&lt;/div&gt;
+    &lt;/div&gt;
+    &lt;!-- END of Top Section --&gt;
+
+  &lt;/div&gt;
+  &lt;!-- END of checkin queue and location rendering --&gt;
+  &lt;!--Contextual search --&gt;
+  &lt;div class="panel panel-primary search-results" ng-if="c.data.resultsFound"&gt;
+    &lt;div class="panel-heading panel-wrapper"&gt;
+      &lt;p class="search-title"&gt;{{data.msgs.catalogRequestMsg}}&lt;/p&gt;
+    &lt;/div&gt;
+    &lt;div&gt;
+      &lt;ul class="list-group"&gt;
+        &lt;li class="list-group-item list-wrapper" ng-repeat="item in c.data.items | limitTo:c.location.maxResults"&gt;
+          &lt;a href="{{item.link}}" target="_blank"&gt;{{item.short_description}}&lt;/a&gt;
+          &lt;div&gt; {{item.link_source}}&lt;/div&gt;
+        &lt;/li&gt;
+      &lt;/ul&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+&lt;/div&gt;]]&gt;&lt;/template&gt;&lt;/sp_widget&gt;</payload>
+        <sys_class_name>sp_rel_widget_clone</sys_class_name>
+        <sys_created_by>jacebenson</sys_created_by>
+        <sys_created_on>2019-05-20 17:59:43</sys_created_on>
+        <sys_id>b4a12b514f61f3006641cfa18110c76a</sys_id>
+        <sys_mod_count>0</sys_mod_count>
+        <sys_name>2ca12b514f61f3006641cfa18110c749</sys_name>
+        <sys_package display_value="Check In" source="x_snc_checkin">662d06644f2573006641cfa18110c767</sys_package>
+        <sys_policy/>
+        <sys_scope display_value="Check In">662d06644f2573006641cfa18110c767</sys_scope>
+        <sys_update_name>sp_rel_widget_clone_b4a12b514f61f3006641cfa18110c76a</sys_update_name>
+        <sys_updated_by>jacebenson</sys_updated_by>
+        <sys_updated_on>2019-05-20 17:59:43</sys_updated_on>
+    </sp_rel_widget_clone>
+</record_update>

@@ -1,0 +1,174 @@
+<?xml version="1.0" encoding="UTF-8"?><record_update table="sp_rel_widget_clone">
+    <sp_rel_widget_clone action="INSERT_OR_UPDATE">
+        <child display_value="Serving Exit Survey">9d22af514f61f3006641cfa18110c722</child>
+        <cloned>2019-05-20 18:01:56</cloned>
+        <last_validated>2019-05-20 18:01:56</last_validated>
+        <parent display_value="Walk-up Exit Survey">fa1cb8b8b3b703002186a72256a8dcaf</parent>
+        <payload>&lt;?xml version="1.0" encoding="UTF-8"?&gt;&lt;sp_widget&gt;&lt;category&gt;custom&lt;/category&gt;&lt;client_script&gt;&lt;![CDATA[function($scope, i18n, $location, spUtil, walkupKeepAlive) {
+	// widget controller
+	var c = this;
+	// Add this class to the body tag. Allows us to overwrite the select2 dropdown style.
+	document.body.classList.add("select2-tablet");
+
+	var awayImage = c.options.away_image;
+	var awayMessage = c.options.away_message;
+	var closedMessage = c.options.closed_message;
+
+	if (c.data.queueId) {
+		c.data.loadSurvey = true;
+		$location.search('type_id', c.data.surveyId);
+		$location.search('sysparm_trigger_table', 'wu_location_queue');
+		$location.search('sysparm_trigger_id', c.data.queueId);
+		$location.search('sysparm_refresh_interval', c.data.refreshInterval);
+		$location.search('sysparm_kiosk', 'true');
+
+		// Check to see if the location is a valid location
+		if (!c.data.isValidLocation)
+			$location.search('location_id', null);
+
+		// Set keep alive interval
+		if (c.data.keepAliveTimeout) {
+			walkupKeepAlive.keepAlive(c.data.keepAliveTimeout);
+		}
+	}
+
+	c.showSurvey = function(schedule) {
+		if (schedule === undefined)
+			return false;
+
+		return (schedule.withinSchedule &amp;&amp; !schedule.enableAway &amp;&amp; c.data.queueId);
+	};
+
+	// Call schedule widget
+	spUtil.get('walk-up-schedule').then(function(response) {
+		c.data.scheduleWidget = response;
+	});
+}]]&gt;&lt;/client_script&gt;&lt;controller_as&gt;c&lt;/controller_as&gt;&lt;css&gt;.question-label {
+  font-size:22px !important;
+  font-weight: bold;
+  word-wrap:break-word !important;
+}
+
+.greeting-msg {
+  margin-left:auto;
+  margin-right:auto;
+  max-width:451px;
+  font-size:22px;
+  width:100%;
+  text-align:center;
+}
+
+#survey-header {
+  margin-top: 15%;
+}
+
+.panel {
+  box-shadow:0 0px 0px !important;
+}
+
+
+.single_question_survey_image&amp;gt;div
+{
+  &amp;amp;:first-child{
+    button {
+      color:#5CB85C !important;
+    }
+  }
+
+  &amp;amp;:nth-child(2){
+    button {
+      color:#F0AD4E !important;
+
+
+    }
+  }
+
+  &amp;amp;:last-child{
+    button {
+      color:#D9534F !important;
+    }
+  }
+}
+
+/*Landscape mode smileys are really small, hence need to override.*/
+@media screen and (orientation:landscape) and (min-width: 992px) and (max-width:1024px) {
+  .col-md-2 {
+    width: 25% !important;
+  }
+  #survey-header {
+    margin-top: 5%;
+  }
+}
+
+.btn_one_click {
+  word-break:break-word;
+  white-space: normal;
+}
+
+.description-text {
+  word-break:break-word;
+  color:grey !important;
+  line-height:1.5 !important;
+}&lt;/css&gt;&lt;data_table&gt;sp_instance&lt;/data_table&gt;&lt;demo_data/&gt;&lt;description/&gt;&lt;docs/&gt;&lt;field_list/&gt;&lt;has_preview&gt;true&lt;/has_preview&gt;&lt;id&gt;walkup-exit-survey&lt;/id&gt;&lt;internal&gt;false&lt;/internal&gt;&lt;link/&gt;&lt;name&gt;Walk-up Exit Survey&lt;/name&gt;&lt;option_schema/&gt;&lt;public&gt;false&lt;/public&gt;&lt;roles/&gt;&lt;script&gt;&lt;![CDATA[(function() {
+
+	var m = data.msgs = {};
+	m.greetingMsg = gs.getMessage('Thanks for visiting us today.');
+	var walkUpUtil = new sn_walkup.ExtPointUtil().loadExtension("WalkUpUtil");
+	var queueId = $sp.getParameter('location_id');
+
+	// Get configuration for this location
+	if (queueId) {
+		data.queueId = queueId;
+		data.config = walkUpUtil.fetchQueueConfig(queueId);
+		data.isValidLocation = walkUpUtil.checkLocationExists(queueId);
+		data.keepAliveTimeout = walkUpUtil.getSessionTimeoutInterval();
+	}
+	else
+		data.queueId = false;
+
+	//Survey URL params
+	data.surveyId = '6d658f863b30130037842c2b54efc4f0';
+	data.refreshInterval = '5';
+
+	// Authentication
+	data.isAuthorizedUser = walkUpUtil.isAuthorized(gs.getUser());
+	data.homeRoute = '/';
+})();]]&gt;&lt;/script&gt;&lt;servicenow&gt;true&lt;/servicenow&gt;&lt;sys_class_name&gt;sp_widget&lt;/sys_class_name&gt;&lt;sys_created_by&gt;admin&lt;/sys_created_by&gt;&lt;sys_created_on&gt;2018-01-19 00:27:22&lt;/sys_created_on&gt;&lt;sys_id&gt;fa1cb8b8b3b703002186a72256a8dcaf&lt;/sys_id&gt;&lt;sys_mod_count&gt;384&lt;/sys_mod_count&gt;&lt;sys_name&gt;Walk-up Exit Survey&lt;/sys_name&gt;&lt;sys_package display_value="Walk-up Experience" source="sn_walkup"&gt;1da803b9b3b10300f686a72256a8dcbc&lt;/sys_package&gt;&lt;sys_policy/&gt;&lt;sys_scope display_value="Walk-up Experience"&gt;1da803b9b3b10300f686a72256a8dcbc&lt;/sys_scope&gt;&lt;sys_update_name&gt;sp_widget_fa1cb8b8b3b703002186a72256a8dcaf&lt;/sys_update_name&gt;&lt;sys_updated_by&gt;daniel.kong&lt;/sys_updated_by&gt;&lt;sys_updated_on&gt;2018-08-31 21:07:37&lt;/sys_updated_on&gt;&lt;template&gt;&lt;![CDATA[&lt;div class="wu_exit_survey"&gt;
+  &lt;div ng-if ="c.data.isAuthorizedUser" id="survey-header"&gt;
+    &lt;!--Always show the logo --&gt;
+    &lt;walkup-logo class="wu-logo" image="::c.data.config.logo" alt="Walkup Logo"&gt;&lt;/walkup-logo&gt;
+    &lt;!-- Display location picker only the first time --&gt;
+    &lt;div  ng-if="!c.data.locationId"&gt;
+      &lt;walkup-location-picker&gt;&lt;/walkup-location-picker&gt;
+    &lt;/div&gt;
+
+    &lt;!-- Schedule widget ---&gt;
+    &lt;sp-widget widget="c.data.scheduleWidget"&gt;&lt;/sp-widget&gt;
+
+    &lt;!-- Load the survey if within schedule hours of operation and location selected --&gt;
+    &lt;div ng-if="c.showSurvey(c.data.scheduleWidget.data.schedule)"&gt;
+      &lt;div ng-if="c.data.loadSurvey"&gt;
+        &lt;h1 class="greeting-msg"&gt;{{data.msgs.greetingMsg}}&lt;/h1&gt;
+        &lt;widget id="take-survey"&gt;&lt;/widget&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+
+  &lt;!-- Authorized user check --&gt;
+  &lt;walkup-authorization is_authorized="c.data.isAuthorizedUser" home_route="c.data.homeRoute"&gt;&lt;/walkup-authorization&gt;
+&lt;/div&gt;
+]]&gt;&lt;/template&gt;&lt;/sp_widget&gt;</payload>
+        <sys_class_name>sp_rel_widget_clone</sys_class_name>
+        <sys_created_by>jacebenson</sys_created_by>
+        <sys_created_on>2019-05-20 18:01:56</sys_created_on>
+        <sys_id>1522ef514f61f3006641cfa18110c718</sys_id>
+        <sys_mod_count>0</sys_mod_count>
+        <sys_name>9d22af514f61f3006641cfa18110c722</sys_name>
+        <sys_package display_value="Check In" source="x_snc_checkin">662d06644f2573006641cfa18110c767</sys_package>
+        <sys_policy/>
+        <sys_scope display_value="Check In">662d06644f2573006641cfa18110c767</sys_scope>
+        <sys_update_name>sp_rel_widget_clone_1522ef514f61f3006641cfa18110c718</sys_update_name>
+        <sys_updated_by>jacebenson</sys_updated_by>
+        <sys_updated_on>2019-05-20 18:01:56</sys_updated_on>
+    </sp_rel_widget_clone>
+</record_update>

@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?><record_update table="m2m_sp_ng_pro_sp_widget">
+    <m2m_sp_ng_pro_sp_widget action="INSERT_OR_UPDATE">
+        <sp_angular_provider display_value="walkupKeepAlive">4a404db623701300c6bf121727bf655d</sp_angular_provider>
+        <sp_widget display_value="Serving Exit Survey">9d22af514f61f3006641cfa18110c722</sp_widget>
+        <sys_class_name>m2m_sp_ng_pro_sp_widget</sys_class_name>
+        <sys_created_by>jacebenson</sys_created_by>
+        <sys_created_on>2019-05-20 18:01:56</sys_created_on>
+        <sys_id>5922af514f61f3006641cfa18110c726</sys_id>
+        <sys_mod_count>0</sys_mod_count>
+        <sys_name>walkupKeepAlive.Copy of Walk-up Exit Survey</sys_name>
+        <sys_package display_value="Check In" source="x_snc_checkin">662d06644f2573006641cfa18110c767</sys_package>
+        <sys_policy/>
+        <sys_scope display_value="Check In">662d06644f2573006641cfa18110c767</sys_scope>
+        <sys_update_name>m2m_sp_ng_pro_sp_widget_5922af514f61f3006641cfa18110c726</sys_update_name>
+        <sys_updated_by>jacebenson</sys_updated_by>
+        <sys_updated_on>2019-05-20 18:01:56</sys_updated_on>
+    </m2m_sp_ng_pro_sp_widget>
+</record_update>

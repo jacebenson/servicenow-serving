@@ -1,0 +1,829 @@
+<?xml version="1.0" encoding="UTF-8"?><record_update table="sp_rel_widget_clone">
+    <sp_rel_widget_clone action="INSERT_OR_UPDATE">
+        <child display_value="Serving Check-In">f4df9fdd4f21f3006641cfa18110c79e</child>
+        <cloned>2019-05-20 17:51:48</cloned>
+        <last_validated>2019-05-20 17:51:48</last_validated>
+        <parent display_value="Walk-up Check-In">ca7d3c813b3a03001d132c2b54efc4bf</parent>
+        <payload>&lt;?xml version="1.0" encoding="UTF-8"?&gt;&lt;sp_widget&gt;&lt;category&gt;custom&lt;/category&gt;&lt;client_script&gt;&lt;![CDATA[function($scope, $http, spUtil, i18n,  spModal, $location , $window, $interval, $uibModal, $timeout, walkupKeepAlive) {
+	// Add this class to the body tag. Allows us to overwrite the select2 dropdown style.
+	document.body.classList.add("select2-tablet");
+	var c = this;
+
+	var urlParams = $location.search();
+	var CURRENT_PAGE = 'CHECK_IN';
+	var OTHER_OPTION = '0';
+	var awayImage = c.options.away_image;
+	var awayMessage = c.options.away_message;
+	var closedMessage = c.options.closed_message;
+
+	var confirmationMsg = '';
+	var promptMsg = '';
+	c.isDisabled = false;
+
+	// Initialize
+	initializePage(c.data.queueId);
+
+	// Call schedule widget
+	spUtil.get('walk-up-schedule', { page: CURRENT_PAGE }).then(function(response) {
+		c.data.scheduleWidget = response;
+	});
+
+	// Field change event for &lt;sn-record-picker&gt; directive.
+	$scope.$on("field.change", function(evt, parms) {
+		c.data.userSysId = parms.newValue;
+	});
+
+	// Automatically focus on the short description text area when the other selection is selected
+	c.onOptionClick = function(selectedOption, userType, elementId) {
+		for (var i = 0; i &lt; c.data.issueChoices.length; i++) {
+			if (c.data.issueChoices[i].value === selectedOption) {
+				if (userType === 'emp') {
+					c.data.showEmployeeTextArea = c.data.issueChoices[i].display_text_area;
+				} else {
+					c.data.showGuestTextArea = c.data.issueChoices[i].display_text_area;
+				}
+			}
+		}
+		if (c.data.showEmployeeTextArea || c.data.showGuestTextArea ) {
+			var textArea = document.getElementById(elementId);
+			$timeout(function() {
+				if (textArea)
+					textArea.focus();
+			},0);
+		}
+		document.activeElement.blur();
+	}
+
+	// Unfocus the employee reference input when an employee is selcted
+	c.onEmployeeReferenceClick = function() {
+		document.activeElement.blur();
+	};
+
+	// Schedule widget - controls whether or not to show form
+	c.showCheckIn = function(schedule) {
+		if (schedule === undefined)
+			return false;
+
+		return (schedule.isCheckInOpen &amp;&amp; !schedule.enableAway &amp;&amp; c.data.queueId);
+	}
+
+	// Logic for disabling checkin button based on other input field.
+	c.empCheckinBtnDisabled = function() {
+		if (c.isDisabled)
+			return true;
+		else if (c.data.showEmployeeTextArea === 'true' &amp;&amp; !c.data.otherIssue)
+			return true;
+		else if (!c.data.userSysId || !c.data.selectedIssue)
+			return true;
+	}
+
+
+	// Disable guest checkin button if any of the fields are empty.
+	c.guestCheckinBtnDisabled = function() {
+		if (c.isDisabled)
+			return true;
+		if (c.data.showGuestTextArea === 'true' &amp;&amp; !c.data.otherGuestIssue)
+			return true;
+		else if (!c.data.guestName || !c.data.guestEmail || !c.data.selectedGuestIssue)
+			return true;
+
+	}
+
+	// Validate guest email. Renders invalid email label if the user input is not a valid email
+	c.validateEmail = function(invalid) {
+		if (!invalid)
+			return c.data.msgs.guestEmailLabel;
+
+		return c.data.msgs.invalidEmail;
+	}
+
+	// Used on the modal templates to close the modal, and clear the state of the form
+	c.closeModal = function() {
+		if (!c.modalInstance)
+			return false;
+		c.modalInstance.close();
+	}
+
+	c.submitEmployeeRequest = function() {
+		c.isDisabled = true;
+		c.data.action = c.data.user.employee;
+		//Post this.data to the Server Script.
+		c.server.update().then(function() {
+			c.data.action = undefined;
+			if (c.data.error) {
+				spUtil.addErrorMessage(c.data.msgs.errorMsg);
+			} else if (c.data.isPresentInDiffQueue) {
+				promptUser();
+			} else if (c.data.recordFound) {
+				renderDuplicateModal();
+			} else if (c.data.newInteraction) {
+				notifyUser();
+			}
+		});
+	}
+
+	c.submitGuestRequest = function() {
+		c.isDisabled = true;
+		c.data.action = c.data.user.guest;
+		c.server.update().then(function() {
+			if (c.data.guestRecordFound) {
+				renderDuplicateModal();
+			} else if (c.data.guestRecordCreated) {
+				notifyUser();
+			}
+		});
+	}
+
+	// Populate list of reasons and queue threshold from server
+	function initializePage(queueId) {
+		if (queueId) {
+			// Initial check to see if the location is a valid location
+			if (!c.data.isValidLocation)
+				$location.search('location_id', null);
+
+			var keepAliveInterval = c.data.keepAliveTimeout;
+			walkupKeepAlive.keepAlive(keepAliveInterval);
+
+			c.data.issueChoices = c.data.reasonList;
+			c.data.queue_threshold = c.data.queue_threshold;
+
+			// Configurations to enable employee or external user support
+			c.formOptions = {
+				enableEmployeeSupport: c.data.config.enableEmployee,
+				enableExternalSupport: c.data.config.enableGuest
+			};
+
+			c.welcomeMessage = c.data.config.welcomeMessage;
+
+			// Toggle guest check in and employee check in pages
+			c.showDiv = {
+				toggle: false
+			};
+
+			// Default to show the guest user form when enable employee is false
+			if (!c.formOptions.enableEmployeeSupport)
+				c.showDiv.toggle = true;
+
+			// Only when employee support is enabled, reset to employee form upon submission
+			if (c.formOptions.enableEmployeeSupport)
+				c.showDiv.toggle = false;
+		}
+	}
+
+	// When user attempts to change into a new queue
+	// Displays a prompt for user input and then show confirmation msg based on input received.
+	function promptUser() {
+		c.modalInstance = $uibModal.open({
+			templateUrl: 'changeQueueModal',
+			scope: $scope
+		});
+
+		c.modalInstance.result.then(function() {
+		}, function() {
+			clearFields();
+		});
+
+		c.changeToCurrentQueue = function() {
+			c.modalInstance.close();
+			c.data.agree = true;
+			c.server.update().then(function() {
+				notifyUser(c.modalInstance);
+			});
+		}
+
+		c.dismiss = function() {
+			c.modalInstance.dismiss();
+		}
+	}
+
+	// Displays a confirmation message to the user.
+	function notifyUser() {
+		var currentTime = new Date();
+		c.checkInTime= currentTime.toLocaleString('en-US', { hour: 'numeric',minute:'numeric', hour12: true });
+
+		if (c.data.specificNotification &amp;&amp; c.data.queue_threshold &amp;&amp; c.data.queue_threshold !== "0") {
+			i18n.getMessage('You will be notified when you are #{0} in the queue.', function(msg) {
+				c.modalMessage = msg.withValues([c.data.queue_threshold]);
+			});
+		}
+		else {
+			i18n.getMessage('in the queue and you will be notified when you are up next.', function(msg) {
+				c.modalMessage = msg;
+			});
+		}
+
+		c.modalInstance = $uibModal.open({
+			templateUrl: 'confirmationModal',
+			scope: $scope
+		});
+
+		// Set modal to automatically close after 8 seconds
+		setTimeoutToCloseModal(c.modalInstance, 8000);
+
+		c.modalInstance.closed.then(function() {
+			clearFields();
+		});
+	}
+
+	// Displays to the user that they are attempting to create a duplicate entry.
+	function renderDuplicateModal() {
+		c.modalInstance = $uibModal.open({
+			templateUrl: 'duplicateUserModal',
+			scope: $scope
+		});
+
+		// Set modal to automatically close after 8 seconds
+		setTimeoutToCloseModal(c.modalInstance, 8000);
+
+		c.modalInstance.closed.then(function() {
+			clearFields();
+		});
+	}
+
+	/**
+	 * Handles closing the modal instance after a specified amount of time has passed.
+	 */
+	function setTimeoutToCloseModal(modalInstance, time) {
+		if (!modalInstance)
+			return false;
+
+		$timeout(function() {
+			modalInstance.close();
+		}, time);
+	}
+
+	// Clean the state of the widget after a submission
+	function clearFields() {
+		c.isDisabled = false;
+		c.data.guestEmail = '';
+		c.data.guestName = '';
+		c.data.selectedIssue = '';
+		c.data.selectedGuestIssue = '';
+		c.data.otherGuestIssue = '';
+		c.data.otherIssue = '';
+		c.data.isPresentInDiffQueue = false;
+		c.data.guestRecordCreated = false;
+		c.data.specificNotification = false;
+		c.data.newInteraction = false;
+		c.data.recordFound = false;
+		c.data.currentRec = 0;
+		c.data.userSysId = '';
+		c.data.guestRecordFound = false;
+		c.data.action = '';
+		c.data.error = false;
+		c.data.agree = false;
+		c.data.showEmployeeTextArea = false;
+		c.data.showGuestTextArea = false;
+
+		c.data.empName = {
+			displayValue: '',
+			value: '',
+			name:'empName'
+		};
+	}
+}
+]]&gt;&lt;/client_script&gt;&lt;controller_as&gt;c&lt;/controller_as&gt;&lt;css&gt;#form-page-header-wrapper {
+  margin-top: 15%;
+
+  .select2-choice {
+  	font-size: 1.2em;
+    padding: 5px 12px;
+    .select2-search-choice-close {
+    	background-size: 80px 52px !important;
+      background-position: right -4px top -2px !important;
+      right: 60px;
+      top: 17px;
+      height: 14px;
+      width: 14px;
+    }
+    .select2-arrow {
+      width: 45px;
+      b {
+      	height: 45px;
+        width: 45px;
+        background-size: 90px 59px !important;
+        background-position: left 10px top 5px;
+      }
+    }
+  }
+}
+
+.tablet-field {
+	.input-icon-wrapper {
+   	input {
+			-webkit-appearance: none;
+      appearance: none;
+    }
+  }
+}
+.check-in-header {
+  text-align: center;
+  font-size: 1.5em;
+  max-width: 432px;
+  margin-left: auto;
+  margin-right: auto;
+  margin-top: 32px;
+}
+
+.required {
+  color: $danger;
+}
+
+.toggle-link {
+  font-size: .8em;
+}
+
+.check-in-submit {
+  margin-top: 40px;
+  margin-bottom: 40px;
+  text-align: center;
+  button {
+  	padding: 16px 40px;
+  }
+}
+
+.form-field-wrapper {
+  margin-left: auto;
+  margin-right: auto;
+  max-width: 512px;
+}
+
+.form-group {
+	margin-left: 0;
+  margin-right: 0;
+}
+
+#short-desc {
+  height: 60px;
+}
+&lt;/css&gt;&lt;data_table&gt;sp_instance&lt;/data_table&gt;&lt;demo_data/&gt;&lt;description/&gt;&lt;docs/&gt;&lt;field_list/&gt;&lt;has_preview&gt;true&lt;/has_preview&gt;&lt;id&gt;walkup-checkin&lt;/id&gt;&lt;internal&gt;false&lt;/internal&gt;&lt;link/&gt;&lt;name&gt;Walk-up Check-In&lt;/name&gt;&lt;option_schema/&gt;&lt;public&gt;false&lt;/public&gt;&lt;roles/&gt;&lt;script&gt;&lt;![CDATA[(function() {
+
+	var userId, userIssue, issueId;
+	var otherIssue = "";
+	var guestName, guestEmail, guestIssue, guestIssueId;
+	var otherGuestIssue = "";
+
+	// Authentication
+	data.isAuthorizedUser = new sn_walkup.ExtPointUtil()
+		.loadExtension("WalkUpUtil")
+		.isAuthorized(gs.getUser())
+	;
+
+	data.homeRoute = '/';
+
+	//Declare messages here
+	var m = data.msgs = {};
+	m.submitMsg = gs.getMessage('Check in');
+	m.dialogOk = gs.getMessage('Ok');
+	m.returnToScreen = gs.getMessage('Return to main screen');
+	m.agreeMsg = gs.getMessage('I still want to join this queue');
+	m.disagreeMsg = gs.getMessage('I want to stay in the other queue');
+	m.dialogCancel = gs.getMessage('Cancel');
+	m.guestLink = gs.getMessage('Can not find your name?');
+	m.employeeLink = gs.getMessage('I am a registered user');
+	m.invalidEmail = gs.getMessage('Please enter a valid email');
+	m.issueMsg = gs.getMessage('Reason for visit');
+	m.empNameMsg = gs.getMessage('Enter your name');
+	m.differentQueueMsgOne = gs.getMessage('Looks like you are in a different queue.');
+	m.differentQueueMsgTwo = gs.getMessage('Do you want to leave the other queue and join this queue location? If so, you will be placed at the end of the queue.');
+	m.duplicateRecordMsgOne = gs.getMessage('Looks like you are already in the queue.');
+	m.duplicateRecordMsgTwo = gs.getMessage('Someone will help you shortly.');
+	m.queueChangeMsg = gs.getMessage('Thank you for checking in. You have been added to the current queue.');
+	m.confirmMsgOne = gs.getMessage('Thanks for checking in!')
+	m.confirmMsgTwo = gs.getMessage('You are...');
+	m.confirmMsgThree = gs.getMessage('You checked in at');
+	m.errorMsg = gs.getMessage('Sorry, looks like something went wrong. Please check the logs.');
+	m.empNameLabel = gs.getMessage('Employee name');
+	m.issueDropdownMsg = gs.getMessage('Select your issue');
+	m.guestNameMsg = gs.getMessage('Enter your full name');
+	m.guestEmailMsg = gs.getMessage('Enter your email');
+	m.otherfieldMsg = gs.getMessage('Short Description');
+	m.issueLabel = gs.getMessage('Reason for visit');
+	m.guestNameLabel = gs.getMessage('Guest name');
+	m.guestEmailLabel = gs.getMessage('Guest email');
+	m.textAreaLabel = gs.getMessage('Short description');
+	m.otherChoice = gs.getMessage('Other');
+
+	var u = data.user = {};
+	u.employee = 'employee';
+	u.guest = 'guest';
+
+	var a = data.userAction = {};
+	a.getConfig = 'GET_CONFIG';
+
+	//Define variables that are used in GlideRecord query here
+	var INTERACTION_TYPE = 'walkup';
+	var GUEST_SYS_ID = '5136503cc611227c0183e96598c4f706'; //sys_id of default guest user.
+	var NEW = 'new';
+	var QUEUED = 'queued';
+	var WORK_IN_PROGRESS = 'work_in_progress';
+	var CLOSED_ABANDONED = 'closed_abandoned';
+	var ON_HOLD = 'on_hold';
+
+	//InteractionFacade created as part of the script include will be used to create interactions as well as creating wu_context.
+	var facade = new sn_walkup.ExtPointUtil().loadExtension("InteractionFacade");
+
+	var is_online_checkin = false;
+
+	//Util used to get location related configs
+	var util = new sn_walkup.ExtPointUtil().loadExtension("WalkUpUtil");
+
+	// Get configuration for this location
+	var queueId = $sp.getParameter('location_id');
+
+	if (input) {
+		// Assign user data received from client controller to server script variables.
+		if (input.userSysId !== null &amp;&amp; input.userSysId !== '') {
+			userId = input.userSysId;
+		}
+
+		if (input.action === a.getConfig) {
+			data.reasonList = util.fetchReasonConfig(queueId);
+			data.queue_threshold = getNotificationThreshold(queueId);
+			data.keepAliveTimeout = util.getSessionTimeoutInterval();
+
+			return;
+		}
+
+		if (input.selectedIssue) {
+			//Get the label for selected choice.
+			issueId = input.selectedIssue;
+		}
+
+		if (input.otherIssue) {
+			otherIssue = input.otherIssue;
+		}
+
+		if (input.guestName) {
+			guestName = input.guestName;
+		}
+
+		if (input.guestEmail) {
+			guestEmail = input.guestEmail;
+		}
+
+		if (input.selectedGuestIssue) {
+			guestIssueId = input.selectedGuestIssue;
+		}
+
+		if (input.otherGuestIssue) {
+			otherGuestIssue = input.otherGuestIssue;
+		}
+
+		try {
+			/**
+			 * On confirmation from user -
+			 * 1. Mark existing record as "Closed Abandoned" to avoid any time conflicts.
+			 * 2. Create a new record in the current queue.
+			 */
+			if (input.agree)
+				switchQueue(userId, queueId, issueId, otherIssue, is_online_checkin);
+
+			// If user clicked submit button, execute the following piece of code.
+			if (input.action === u.employee)
+				onEmployeeCheckIn(userId, queueId, issueId, otherIssue, is_online_checkin, input.queue_threshold);
+
+			else if (input.action === u.guest)
+				onGuestCheckIn(queueId, guestIssueId, otherGuestIssue, guestName, guestEmail, is_online_checkin);
+		}
+		catch (e) {
+			data.error = true;
+			gs.info('Error occured.' + e);
+		}
+	}
+	else {
+		// check if the location exists and is active
+		if (queueId) {
+			data.queueId = queueId;
+			data.config = getConfigurations(queueId);
+			data.reasonList = util.fetchReasonConfig(queueId);
+			data.queue_threshold = getNotificationThreshold(queueId);
+			data.keepAliveTimeout = util.getSessionTimeoutInterval();
+			data.isValidLocation = util.checkLocationExists(queueId);
+		}
+		else
+			data.queueId = false;
+	}
+
+	/**
+	 * Will attempt to create an employee interaction if an interaction for this record doesn't exist in
+	 * the QUEUED or WORK IN PROGRESS state
+	 *
+	 * @param userId
+	 * @param queueId
+	 * @param issueId
+	 * @param otherIssue
+	 * @param is_online_checkin
+	 * @param queueThreshold
+	 */
+	function onEmployeeCheckIn(userId, queueId, issueId, otherIssue, is_online_checkin, queueThreshold) {
+		InteractionStats(queueId, queueThreshold);
+		var gr2 = new GlideRecord("interaction");
+		// Check if the user exists in the current queue or in a different queue
+		if (gr2.isValid()) {
+			gr2.addActiveQuery();
+			gr2.addQuery('type', INTERACTION_TYPE);
+			gr2.addQuery('state', NEW).addOrCondition('state', WORK_IN_PROGRESS);
+			gr2.addQuery('opened_for', userId);
+			gr2.query();
+			if (gr2.next()) {
+				var interaction_location = gr2.getValue('location');
+				if (interaction_location === facade.getQueueLocation(queueId)) {
+					data.recordFound = true;
+				}
+				else if (interaction_location !== facade.getQueueLocation(queueId)) {
+					data.isPresentInDiffQueue = true;
+					var duplicateQueueId = util.getQueueFromLocation(gr2.getValue('location'));
+					var queueName = util.getQueueName(duplicateQueueId);
+					m.differentQueueMsgTwo = gs.getMessage('Do you want to leave the {0} queue and join this queue location? If so, you will be placed at the end of the queue.', [queueName]);
+
+				}
+			}
+			else {
+				data.newInteraction = true;
+				facade.createEmpInteraction(userId, queueId, issueId, otherIssue, is_online_checkin);
+			}
+		}
+	}
+
+	/**
+	 * Will attempt to create a guest interaction if there is not an interaction record in the QUEUED or WORK IN PROGRESS
+	 * state that has the same email as the current guest checking in.
+	 *
+	 * @param queueId
+	 * @param guestIssueId
+	 * @param otherGuestIssue
+	 * @param guestName
+	 * @param guestEmail
+	 * @param is_online_checkin
+	 */
+	function onGuestCheckIn(queueId, guestIssueId, otherGuestIssue, guestName, guestEmail, is_online_checkin) {
+		var is_guest = true;
+		InteractionStats(queueId, input.queue_threshold);
+
+		// Check if the guest entry with the same email address exists in the system
+		// If it does, notify the user else create a new interaction in current queue for the guest user. 
+		var duplicateFound = checkDuplicateGuest();
+		if (duplicateFound) {
+			data.guestRecordFound = true;
+		} else {
+			facade.createInteraction(GUEST_SYS_ID, queueId, guestIssueId, otherGuestIssue, is_guest, guestName, guestEmail, is_online_checkin);
+			data.guestRecordCreated = true;
+		}
+	}
+
+	/**
+	 * Mark the current interaction for the user as CLOSED ABANDONED and re-create a new interaction for the 
+	 * same user in the specified queue.
+	 *
+	 * @param userId
+	 * @param queueId
+	 * @param issueId
+	 * @param otherIssue
+	 * @param is_online_checkin
+	 */
+	function switchQueue(userId, queueId, issueId, otherIssue, is_online_checkin) {
+		var gr = new GlideRecord("interaction");
+
+		if (gr.isValid()) {
+			gr.addActiveQuery();
+			gr.addQuery('type', INTERACTION_TYPE);
+			gr.addQuery('opened_for', userId);
+			gr.addQuery('state', NEW).addOrCondition('state', WORK_IN_PROGRESS);
+			gr.query();
+
+			if (gr.next()) {
+				gr.setValue('state', CLOSED_ABANDONED);
+				gr.update();
+			}
+		}
+
+		facade.createEmpInteraction(userId, queueId, issueId, otherIssue, is_online_checkin);
+	}
+
+	function InteractionStats (queueId, queue_threshold) {
+		var gr1 = new GlideRecord("interaction");
+		if (gr1.isValid()) {
+			gr1.addActiveQuery();
+			gr1.addQuery('type', INTERACTION_TYPE);
+			gr1.addQuery('state', NEW);
+			gr1.addQuery('location', facade.getQueueLocation(queueId));
+			gr1.query();
+
+			data.currentRec = gr1.getRowCount() +1 ;
+
+			if (gr1.next() &amp;&amp; data.currentRec &gt; Math.abs(queue_threshold))
+				data.specificNotification = true;
+		}
+	}
+
+	/**
+	 * Logic to check if guest user is aready in the queue.
+	 * The unique identifier is guests email address which is parsed from context.
+	 */
+	function checkDuplicateGuest() {
+		try {
+			var queueGR = new GlideRecord("interaction");
+			queueGR.addActiveQuery();
+			queueGR.addQuery("type", INTERACTION_TYPE);
+			queueGR.addQuery("state", NEW).addOrCondition('state', WORK_IN_PROGRESS).addOrCondition('state', ON_HOLD);
+			queueGR.addQuery("opened_for", GUEST_SYS_ID);
+			queueGR.query();
+			while (queueGR.next()) {
+				var parsedResult = util.parseContext(queueGR);
+				var email = parsedResult.guest_email;
+
+				if (email &amp;&amp; guestEmail &amp;&amp; email.toLowerCase() === guestEmail.toLowerCase())
+					return true;
+			}
+			return false;
+		}
+		catch (e) {
+			data.error = true;
+			gs.info('Guest user:Error occured while checking for duplicate entries.' + e);
+		}
+	}
+
+	function getIssueLabel(choiceValue, choiceList) {
+		for (var i = 0, len = choiceList.length; i &lt; len; i++) {
+			if (choiceList[i].value === choiceValue ) {
+				return choiceList[i].label;
+			}
+		}
+	}
+
+	function getConfigurations(sysId) {
+		var WalkUpUtil = new sn_walkup.ExtPointUtil().loadExtension("WalkUpUtil");
+		var config = WalkUpUtil.fetchQueueConfig(sysId);
+
+		return {
+			enableEmployee: (config.enableEmployee === "1"),
+			enableGuest: (config.enableGuest === "1"),
+			welcomeMessage: (config.checkInGreeting),
+			logo: config.logo
+		};
+	}
+
+	function getNotificationThreshold(locationId) {
+		var threshold = null;
+
+		if (!locationId)
+			return threshold;
+
+		try {
+			var locationRecord = new GlideRecord('wu_location_queue');
+			locationRecord.addActiveQuery();
+			locationRecord.get(locationId);
+			threshold = locationRecord.getValue('threshold_notification');
+		}
+		catch(e) {
+			data.error = true;
+			gs.info('Error occured while fetching notification threshold.' + e);
+		}
+
+		return threshold;
+	}
+
+})();]]&gt;&lt;/script&gt;&lt;servicenow&gt;true&lt;/servicenow&gt;&lt;sys_class_name&gt;sp_widget&lt;/sys_class_name&gt;&lt;sys_created_by&gt;daryljohn.rodrigues&lt;/sys_created_by&gt;&lt;sys_created_on&gt;2017-12-01 02:11:52&lt;/sys_created_on&gt;&lt;sys_id&gt;ca7d3c813b3a03001d132c2b54efc4bf&lt;/sys_id&gt;&lt;sys_mod_count&gt;2612&lt;/sys_mod_count&gt;&lt;sys_name&gt;Walk-up Check-In&lt;/sys_name&gt;&lt;sys_package display_value="Walk-up Experience" source="sn_walkup"&gt;1da803b9b3b10300f686a72256a8dcbc&lt;/sys_package&gt;&lt;sys_policy/&gt;&lt;sys_scope display_value="Walk-up Experience"&gt;1da803b9b3b10300f686a72256a8dcbc&lt;/sys_scope&gt;&lt;sys_update_name&gt;sp_widget_ca7d3c813b3a03001d132c2b54efc4bf&lt;/sys_update_name&gt;&lt;sys_updated_by&gt;admin&lt;/sys_updated_by&gt;&lt;sys_updated_on&gt;2018-10-17 01:24:22&lt;/sys_updated_on&gt;&lt;template&gt;&lt;![CDATA[&lt;div&gt;
+  &lt;div ng-if="c.data.isAuthorizedUser"&gt;
+    &lt;!-- Wrapper for image and location picker --&gt;
+    &lt;div id="form-page-header-wrapper"&gt;
+      &lt;walkup-logo class="wu-logo" image="::c.data.config.logo" alt="${Walkup Logo}"&gt;&lt;/walkup-logo&gt;
+      &lt;walkup-location-picker table="'wu_location_queue'"&gt; &lt;/walkup-location-picker&gt;
+    &lt;/div&gt;
+		&lt;p&gt;
+             
+    &lt;/p&gt;
+    &lt;!-- Schedule widget --&gt;
+    &lt;div&gt;
+      &lt;sp-widget widget="c.data.scheduleWidget"&gt;&lt;/sp-widget&gt;
+    &lt;/div&gt;
+    &lt;div ng-if="c.showCheckIn(c.data.scheduleWidget.data.schedule)"&gt;
+      &lt;!-- Check-in form --&gt;
+      &lt;div ng-if="c.formOptions.enableEmployeeSupport &amp;&amp; !c.showDiv.toggle"&gt;
+        &lt;!-- Employee check-in code --&gt;
+        &lt;div class="check-in-header"&gt;
+          &lt;p&gt;{{c.welcomeMessage}}&lt;/p&gt;
+          &lt;a ng-if="::c.formOptions.enableExternalSupport" class="toggle-link" href="" ng-click="c.showDiv.toggle = !c.showDiv.toggle"&gt;{{data.msgs.guestLink}}&lt;/a&gt;
+        &lt;/div&gt;
+        &lt;form name="employeeForm" class="form-horizontal" novalidate&gt;
+          &lt;div class="form-field-wrapper"&gt;
+            &lt;div class="tablet-field"&gt;
+              &lt;label ng-class="{'show-label': c.data.empName.value}" for="name-dropdown"&gt;{{data.msgs.empNameLabel}}&lt;/label&gt;
+              &lt;div class="input-icon-wrapper"&gt;
+                &lt;sn-record-picker
+                                  class="form-field"
+                                  ng-click="c.onEmployeeReferenceClick()"
+                                  name="name-dropdown"
+                                  id="name-dropdown"
+                                  field="c.data.empName"
+                                  table="'sys_user'"
+                                  display-field="'name'"
+                                  placeholder="{{data.msgs.empNameMsg}}"
+                                  value-field="'sys_id'"
+                                  search-fields="'name'"
+                                  display-fields="'email'"
+                                  page-size="100"
+                                  default-query="'active=true'"&gt;
+                &lt;/sn-record-picker&gt;
+                &lt;div class="icon-search fa-2x"&gt;&lt;/div&gt;
+              &lt;/div&gt;
+            &lt;/div&gt;
+
+            &lt;div class="tablet-field"&gt;
+              &lt;label ng-class="{'show-label': c.data.selectedIssue}" for="issue-dropdown-employee"&gt;{{data.msgs.issueLabel}}&lt;/label&gt;
+              &lt;div class="input-icon-wrapper"&gt;
+                &lt;sn-choice-list
+                                ng-click="c.onOptionClick(c.data.selectedIssue, 'emp', 'employee-textarea')"
+                                class="form-field options-drop"
+                                id="issue-dropdown-employee"
+                                sn-model="c.data.selectedIssue"
+                                sn-text-field="label" sn-value-field="value"
+                                sn-items="::c.data.issueChoices"
+                                sn-options="{placeholder:data.msgs.issueMsg}"
+                                &gt;
+                &lt;/sn-choice-list&gt;
+                &lt;div class="icon-menu-arrows fa-lg"&gt;&lt;/div&gt;
+              &lt;/div&gt;
+              &lt;label hidden for="employee-textarea"&gt;{{data.msgs.textAreaLabel}}&lt;/label&gt;
+              &lt;!-- Show the other input field if user selects 'Other' choice --&gt;
+              &lt;textarea ng-show="c.data.showEmployeeTextArea === 'true'" id="employee-textarea" class="form-control form-field form-input" ng-model="c.data.otherIssue" rows="3" maxlength="160" placeholder="{{c.data.msgs.otherfieldMsg}}"&gt;&lt;/textarea&gt;
+            &lt;/div&gt;
+            &lt;div class="check-in-submit"&gt;
+              &lt;button type="submit" ng-disabled="c.empCheckinBtnDisabled()" class="btn btn-primary btn-lg" ng-click="c.submitEmployeeRequest()"&gt;{{data.msgs.submitMsg}}&lt;/button&gt;
+            &lt;/div&gt;
+          &lt;/div&gt;
+        &lt;/form&gt;
+      &lt;/div&gt; &lt;!-- End of employee check-in code --&gt;
+
+
+      &lt;!-- Guest check-in code--&gt;
+      &lt;div ng-if="c.formOptions.enableExternalSupport &amp;&amp; c.showDiv.toggle"&gt;
+        &lt;div class="check-in-header"&gt;
+          &lt;p&gt;
+            {{c.welcomeMessage}}
+          &lt;/p&gt;
+          &lt;a ng-if="::c.formOptions.enableEmployeeSupport" class ="toggle-link" href="" ng-click="c.showDiv.toggle = !c.showDiv.toggle"&gt;{{data.msgs.employeeLink}}&lt;/a&gt;
+        &lt;/div&gt;
+
+        &lt;form name="userForm" class="form-horizontal" novalidate&gt;
+          &lt;div class="form-field-wrapper"&gt;
+            &lt;div class="tablet-field"&gt;
+              &lt;label ng-class="{'show-label': c.data.guestName}" for="guest-name"&gt;{{data.msgs.guestNameLabel}}&lt;/label&gt;
+              &lt;div class="input-icon-wrapper"&gt;
+                &lt;input aria-label="guest name" class="form-control form-field form-input" id="guest-name" name="guest-name" type="input"  placeholder="{{data.msgs.guestNameMsg}}" ng-model="c.data.guestName" ng-change="c.server.update()"/&gt;
+                &lt;div class="icon-keyboard fa-2x"&gt;&lt;/div&gt;
+              &lt;/div&gt;
+              &lt;!-- Email input and validation--&gt;
+              &lt;div class="tablet-field form-group" ng-class="{ 'has-error' : userForm.email.$invalid &amp;&amp; !userForm.email.$pristine }"&gt;
+                &lt;label for="email" ng-class="{'show-label': userForm.email.$viewValue, 'required': userForm.email.$invalid}"&gt;{{c.validateEmail(userForm.email.$invalid)}}&lt;/label&gt;
+                &lt;div class="input-icon-wrapper"&gt;
+                  &lt;input aria-label="guest email" placeholder="{{data.msgs.guestEmailMsg}}" ng-model="c.data.guestEmail" id="email" name="email" type="email" class="form-control form-field form-input" &gt;
+                  &lt;div class="icon-keyboard fa-2x"&gt;&lt;/div&gt;
+                &lt;/div&gt;
+              &lt;/div&gt;
+
+              &lt;div class="tablet-field"&gt;
+                &lt;label ng-class="{'show-label': c.data.selectedGuestIssue}" for="issue-dropdown-guest"&gt;{{data.msgs.issueLabel}}&lt;/label&gt;
+                &lt;div class="input-icon-wrapper"&gt;
+                  &lt;sn-choice-list class="form-field options-drop"
+                                  id="issue-dropdown-guest"
+                                  name="issue-dropdown-guest"
+                                  ng-click="c.onOptionClick(c.data.selectedGuestIssue, 'guest', 'guest-textarea')"
+                                  sn-model="c.data.selectedGuestIssue"
+                                  sn-text-field="label"
+                                  sn-value-field="value"
+                                  sn-items="data.issueChoices"
+                                  sn-options="{placeholder:data.msgs.issueMsg}"&gt;&lt;/sn-choice-list&gt;
+                  &lt;div class="icon-menu-arrows fa-lg"&gt;&lt;/div&gt;
+                &lt;/div&gt;
+                &lt;label hidden for="guest-textarea"&gt;{{data.msgs.textAreaLabel}}&lt;/label&gt;
+                &lt;textarea ng-show="c.data.showGuestTextArea === 'true'" id="guest-textarea" class="form-control form-field form-input" ng-model="c.data.otherGuestIssue" rows="3" maxlength="160" placeholder="{{c.data.msgs.otherfieldMsg}}"&gt;&lt;/textarea&gt;
+              &lt;/div&gt;
+
+              &lt;div class="check-in-submit"&gt;
+                &lt;button type="button" ng-disabled="c.guestCheckinBtnDisabled()" class="btn btn-primary btn-lg" ng-click="c.submitGuestRequest()"&gt;{{data.msgs.submitMsg}}&lt;/button&gt;
+              &lt;/div&gt;
+            &lt;/div&gt;
+          &lt;/div&gt;
+        &lt;/form&gt;
+      &lt;/div&gt; &lt;!-- End of guest check-in code --&gt;
+    &lt;/div&gt; &lt;!-- End of entire check-in code --&gt;
+  &lt;/div&gt;
+  &lt;walkup-authorization is_authorized="c.data.isAuthorizedUser" home_route="c.data.homeRoute"&gt;&lt;/walkup-authorization&gt;
+&lt;/div&gt;
+]]&gt;&lt;/template&gt;&lt;/sp_widget&gt;</payload>
+        <sys_class_name>sp_rel_widget_clone</sys_class_name>
+        <sys_created_by>jacebenson</sys_created_by>
+        <sys_created_on>2019-05-20 17:51:48</sys_created_on>
+        <sys_id>b0df17114f61f3006641cfa18110c728</sys_id>
+        <sys_mod_count>0</sys_mod_count>
+        <sys_name>f4df9fdd4f21f3006641cfa18110c79e</sys_name>
+        <sys_package display_value="Check In" source="x_snc_checkin">662d06644f2573006641cfa18110c767</sys_package>
+        <sys_policy/>
+        <sys_scope display_value="Check In">662d06644f2573006641cfa18110c767</sys_scope>
+        <sys_update_name>sp_rel_widget_clone_b0df17114f61f3006641cfa18110c728</sys_update_name>
+        <sys_updated_by>jacebenson</sys_updated_by>
+        <sys_updated_on>2019-05-20 17:51:48</sys_updated_on>
+    </sp_rel_widget_clone>
+</record_update>

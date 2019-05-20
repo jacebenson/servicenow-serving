@@ -1,0 +1,189 @@
+<?xml version="1.0" encoding="UTF-8"?><record_update table="sp_widget">
+    <sp_widget action="INSERT_OR_UPDATE">
+        <category>custom</category>
+        <client_script><![CDATA[function($scope, i18n, $location, spUtil, walkupKeepAlive) {
+	// widget controller
+	var c = this;
+	// Add this class to the body tag. Allows us to overwrite the select2 dropdown style.
+	document.body.classList.add("select2-tablet");
+
+	var awayImage = c.options.away_image;
+	var awayMessage = c.options.away_message;
+	var closedMessage = c.options.closed_message;
+
+	if (c.data.queueId) {
+		c.data.loadSurvey = true;
+		$location.search('type_id', c.data.surveyId);
+		$location.search('sysparm_trigger_table', 'wu_location_queue');
+		$location.search('sysparm_trigger_id', c.data.queueId);
+		$location.search('sysparm_refresh_interval', c.data.refreshInterval);
+		$location.search('sysparm_kiosk', 'true');
+
+		// Check to see if the location is a valid location
+		if (!c.data.isValidLocation)
+			$location.search('location_id', null);
+
+		// Set keep alive interval
+		if (c.data.keepAliveTimeout) {
+			walkupKeepAlive.keepAlive(c.data.keepAliveTimeout);
+		}
+	}
+
+	c.showSurvey = function(schedule) {
+		if (schedule === undefined)
+			return false;
+
+		return (schedule.withinSchedule && !schedule.enableAway && c.data.queueId);
+	};
+
+	// Call schedule widget
+	spUtil.get('walk-up-schedule').then(function(response) {
+		c.data.scheduleWidget = response;
+	});
+}]]></client_script>
+        <controller_as>c</controller_as>
+        <css>.question-label {
+  font-size:22px !important;
+  font-weight: bold;
+  word-wrap:break-word !important;
+}
+
+.greeting-msg {
+  margin-left:auto;
+  margin-right:auto;
+  max-width:451px;
+  font-size:22px;
+  width:100%;
+  text-align:center;
+}
+
+#survey-header {
+  margin-top: 15%;
+}
+
+.panel {
+  box-shadow:0 0px 0px !important;
+}
+
+
+.single_question_survey_image&gt;div
+{
+  &amp;:first-child{
+    button {
+      color:#5CB85C !important;
+    }
+  }
+
+  &amp;:nth-child(2){
+    button {
+      color:#F0AD4E !important;
+
+
+    }
+  }
+
+  &amp;:last-child{
+    button {
+      color:#D9534F !important;
+    }
+  }
+}
+
+/*Landscape mode smileys are really small, hence need to override.*/
+@media screen and (orientation:landscape) and (min-width: 992px) and (max-width:1024px) {
+  .col-md-2 {
+    width: 25% !important;
+  }
+  #survey-header {
+    margin-top: 5%;
+  }
+}
+
+.btn_one_click {
+  word-break:break-word;
+  white-space: normal;
+}
+
+.description-text {
+  word-break:break-word;
+  color:grey !important;
+  line-height:1.5 !important;
+}</css>
+        <data_table>sp_instance</data_table>
+        <demo_data/>
+        <description/>
+        <docs/>
+        <field_list/>
+        <has_preview>true</has_preview>
+        <id>serving-exit-survey</id>
+        <internal>false</internal>
+        <link><![CDATA[function link(scope, element, attrs, controller) {  }]]></link>
+        <name>Serving Exit Survey</name>
+        <option_schema/>
+        <public>false</public>
+        <roles/>
+        <script><![CDATA[(function() {
+
+	var m = data.msgs = {};
+	m.greetingMsg = gs.getMessage('Thanks for visiting us today.');
+	var walkUpUtil = new sn_walkup.ExtPointUtil().loadExtension("WalkUpUtil");
+	var queueId = $sp.getParameter('location_id');
+
+	// Get configuration for this location
+	if (queueId) {
+		data.queueId = queueId;
+		data.config = walkUpUtil.fetchQueueConfig(queueId);
+		data.isValidLocation = walkUpUtil.checkLocationExists(queueId);
+		data.keepAliveTimeout = walkUpUtil.getSessionTimeoutInterval();
+	}
+	else
+		data.queueId = false;
+
+	//Survey URL params
+	data.surveyId = '6d658f863b30130037842c2b54efc4f0';
+	data.refreshInterval = '5';
+
+	// Authentication
+	data.isAuthorizedUser = walkUpUtil.isAuthorized(gs.getUser());
+	data.homeRoute = '/';
+})();]]></script>
+        <servicenow>false</servicenow>
+        <sys_class_name>sp_widget</sys_class_name>
+        <sys_created_by>jacebenson</sys_created_by>
+        <sys_created_on>2019-05-20 18:01:56</sys_created_on>
+        <sys_id>9d22af514f61f3006641cfa18110c722</sys_id>
+        <sys_mod_count>1</sys_mod_count>
+        <sys_name>Serving Exit Survey</sys_name>
+        <sys_package display_value="Check In" source="x_snc_checkin">662d06644f2573006641cfa18110c767</sys_package>
+        <sys_policy/>
+        <sys_scope display_value="Check In">662d06644f2573006641cfa18110c767</sys_scope>
+        <sys_update_name>sp_widget_9d22af514f61f3006641cfa18110c722</sys_update_name>
+        <sys_updated_by>jacebenson</sys_updated_by>
+        <sys_updated_on>2019-05-20 18:02:09</sys_updated_on>
+        <template><![CDATA[<div class="wu_exit_survey">
+  <div ng-if ="c.data.isAuthorizedUser" id="survey-header">
+    <!--Always show the logo -->
+    <walkup-logo class="wu-logo" image="::c.data.config.logo" alt="Walkup Logo"></walkup-logo>
+    <!-- Display location picker only the first time -->
+    <div  ng-if="!c.data.locationId">
+      <walkup-location-picker></walkup-location-picker>
+    </div>
+
+    <!-- Schedule widget --->
+    <sp-widget widget="c.data.scheduleWidget"></sp-widget>
+
+    <!-- Load the survey if within schedule hours of operation and location selected -->
+    <div ng-if="c.showSurvey(c.data.scheduleWidget.data.schedule)">
+      <div ng-if="c.data.loadSurvey">
+        <h1 class="greeting-msg">{{data.msgs.greetingMsg}}</h1>
+        <widget id="take-survey"></widget>
+      </div>
+    </div>
+  </div>
+
+  <!-- Authorized user check -->
+  <walkup-authorization is_authorized="c.data.isAuthorizedUser" home_route="c.data.homeRoute"></walkup-authorization>
+</div>
+]]></template>
+    </sp_widget>
+</record_update>

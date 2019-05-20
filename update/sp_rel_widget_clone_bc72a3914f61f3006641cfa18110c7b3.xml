@@ -1,0 +1,701 @@
+<?xml version="1.0" encoding="UTF-8"?><record_update table="sp_rel_widget_clone">
+    <sp_rel_widget_clone action="INSERT_OR_UPDATE">
+        <child display_value="Serving Queue On Site">6c72a3914f61f3006641cfa18110c765</child>
+        <cloned>2019-05-20 18:03:16</cloned>
+        <last_validated>2019-05-20 18:03:16</last_validated>
+        <parent display_value="Walk-up Queue On Site">0ee8191653360300c6bfddeeff7b125a</parent>
+        <payload>&lt;?xml version="1.0" encoding="UTF-8"?&gt;&lt;sp_widget&gt;&lt;category/&gt;&lt;client_script&gt;&lt;![CDATA[function($scope, $http, $rootScope, $location, spUtil, $interval, $timeout, $animate, walkUpQueue, walkupKeepAlive) {
+	var c = this;
+
+	// Initial check to see if the location is a valid location
+	if (!c.data.isValidLocation)
+		$location.search('location_id', null);
+	// Set keep alive interval
+	else if (c.data.keepAliveTimeout)
+		walkupKeepAlive.keepAlive(c.data.keepAliveTimeout);
+
+	var urlParams = $location.search();
+	var WORK_IN_PROGRESS = 'work_in_progress';
+	var FETCH_APPTMNT_INTERVAL = 15;
+	var fetchApptmntInterval;
+	var fetchApptmntTimeout;
+
+	// Controller to fetch appointment at an interval
+	var apptmntIntervalCtrl = walkUpQueue.apptmntIntervalCtrl();
+	apptmntIntervalCtrl.setIntervalTime(FETCH_APPTMNT_INTERVAL);
+
+	c.data.waitingList = [];
+	c.data.currentTimer = null;
+	c.data.currentlyServing = [];
+	c.data.nowBeingServed = [];
+	c.data.nowBeingServedDuration = 7000; // 7seconds
+	c.data.locationId = urlParams.location_id;
+
+	$scope.userBeingServedTransition = false;
+
+	// Only fetch data from server if there is a sys_id passed in from the URL
+	if (c.data.locationId) {
+		populateQueue(c.data.locationId);
+		configureApptmntInterval();
+
+		// Listen only to interaction changes for the current queue
+		spUtil.recordWatch($scope, 'interaction', 'location=' + c.data.queueLocation_Id, function(result) {
+			if (!result.data.sys_id)
+				return false;
+
+			var changes = result.data.changes;
+
+			// If there are no changes or there is no state change exit out
+			if (!changes || changes.length === 0 || changes.indexOf('state') === -1)
+				return false;
+			
+			console.log(result.data);
+			// Given the sys_id from the record watcher, fetch the interaction record data
+			walkUpQueue.fetchSingleWalkUp(result.data.sys_id, function(response) {
+				// Check that state changed to work in progress - 2 and that the record is not in the
+				// currently serving list
+				if (response.state === WORK_IN_PROGRESS &amp;&amp; !isInList(response.sysId, c.data.currentlyServing)) {
+					addNowBeingServed({
+						"sysId": response.sysId,
+						"name": response.name,
+						"isAppointment": response.isAppointment
+					});
+				} else {
+					populateQueue(c.data.locationId);
+				}
+			});
+		});
+
+		// Listen to changes on the location queue
+		spUtil.recordWatch($scope, 'wu_location_queue', 'sys_id=' + c.data.locationId, function(result) {	
+			if (containAction(result.data.changes, ['queued_interactions', 'average_wait_time']))
+				return false;
+
+			//Call server to get latest config
+			c.server.update().then(function() {
+				if (c.data.waitingList.length &gt; 0)
+					c.data.waitingList = walkUpQueue.setQueueTime(c.data.waitingList, c.data.config.timeOptions);
+
+				configureApptmntInterval();
+				fetchAppointments(c.data.locationId);
+			});
+		});
+
+		// Will controll carousel slide changes for all carousels on the page
+		$interval(function() {
+			$scope.$broadcast('walkup.slideNext');
+		}, 10000);
+	}
+
+	// Call schedule widget
+	spUtil.get('walk-up-schedule').then(function(response) {
+		c.data.scheduleWidget = response;
+	});
+
+	// Schedule widget - controls whether or not to show form
+	$scope.showQueue = function(hideSchedule) {
+		return hideSchedule &amp;&amp; c.data.locationId;
+	};
+
+	// Show current time, and set a timeout to constantly update it.
+	$scope.displayTime = Date.now();
+
+	$interval(function() {
+		$scope.displayTime = Date.now();
+	}, 1000);
+
+	$scope.getOrdinal = function(clock) {
+		var day = (new Date(clock)).getDate();
+		var endings = ["th","st","nd","rd"];
+		return (endings[(day-20) % 10]||endings[day]||endings[0]);
+	};
+
+	// Initialize state for currently served alert
+	$scope.userBeingServed = '';
+	$scope.servedUserIsApptmnt = false;
+
+	/**
+	 * Determine if a list has only elements from the action list
+	 *
+	 * @param list {Array &lt;string&gt;} - List of actions to check 
+	 * @param actions {Array &lt;string} - Passed in list of actions
+	 */
+	function containAction(list, actions) {
+		if (!list || list.length === 0) 
+			return false;
+
+		return list.every(function(item) {
+			return actions.indexOf(item) &gt; -1;
+		});
+	}
+
+	/**
+	 * Check if the sysId is in the list.
+	 *
+	 * @param sysId - The sys_id of the interaction record to check
+	 * @param list - The list we want to check for
+	 */
+	function isInList(sysId, list) {
+		if (!list || !list.length) {
+			return false;
+		}
+
+		var filteredList = list.filter(function(item) {
+			return item.recordId === sysId;
+		});
+
+		if (filteredList.length &gt; 0) {
+			return true;
+		}
+
+		return false;
+	}
+
+	/**
+	 * Set the appointment list variable in the controller
+	 *
+	 * @param sysId {string} - sys_id of wu_location_queue to fetch appointments from
+	 */
+	function fetchAppointments(sysId) {
+		if (c.data.config.isApptmntEnabled) {
+			walkUpQueue.fetchAppointments(sysId, function(data) {
+				// Update waiting list with newly fetched appointments
+				var waitingList = c.data.waitingList.filter(function(data) {
+					return !data.isAppointment;
+				});
+
+				c.data.waitingList = data.concat(waitingList);
+			});
+		}
+	}
+
+	/**
+	 * Given a specified walk up location, populate the waiting list and currently assigned list .
+	 * @param sysId - The sys_id of the current record in wu_location_queue.
+	 */
+	function populateQueue(sysId) {
+		// Fetch users that are waiting to be assisted by a technician
+		walkUpQueue.fetchOnsiteWaiting(sysId, c.data.config.timeOptions, c.data.config.isApptmntEnabled, function(data) {
+			c.data.waitingList = data.list;
+		});
+
+		walkUpQueue.fetchOnsiteServiced(sysId, function(data) {
+			c.data.currentlyServing = data.list;
+		});
+
+	}
+
+	/**
+	 * Enqueue the records for people who have transitioned from
+	 * queued to work_in_progress and trigger the "Now Being Served"
+	 * display timer
+	 *
+	 * @param payload The payload being stored in the nowBeingServed array
+	 */
+	function addNowBeingServed(payload) {
+		c.data.nowBeingServed.push(payload);
+		if (c.data.currentTimer)
+			return;
+
+		showNowBeingServed();
+	}
+
+	/**
+	 * Show which user is being serviced now on the screen
+	 * This function will call itself every 7 seconds until there are no users
+	 * left in c.data.nowBeingServed
+	 */
+	function showNowBeingServed() {
+
+		if (c.data.currentTimer)
+			return;
+
+		if (!c.data.nowBeingServed)
+			return;
+
+		// No users are being serviced, so show the queue
+		if (c.data.nowBeingServed.length === 0) {
+			$scope.userBeingServed = '';
+			$scope.servedUserIsApptmnt = false;
+			populateQueue(c.data.locationId);
+			return;
+		}
+
+		var beingServed = c.data.nowBeingServed.shift();
+		$scope.userBeingServedIsUnknown = false;
+		$scope.servedUserIsApptmnt = beingServed.isAppointment;
+
+		// PRB1279549:
+		// To handle the edge case of a sys_user with no
+		// fname/lname, if there is a user being served
+		// but the name is null, then set the name to
+		// "Unknown", and display it in italics
+		if(beingServed.name)
+			$scope.userBeingServed = beingServed.name;
+		else {
+			$scope.userBeingServed = "${Unknown}";
+			$scope.userBeingServedIsUnknown = true;
+		}
+
+		// Show the current screen for N seconds, then refresh
+		c.data.currentTimer = $timeout(function(){
+			if (c.data.nowBeingServed.length &gt; 0)
+				$scope.userBeingServedTransition = true;
+		}, c.data.nowBeingServedDuration).then(function(){
+			$timeout(function(){
+				$scope.userBeingServedTransition = false;
+				c.data.currentTimer = null;
+				$scope.userBeingServed = '';
+				showNowBeingServed();
+			}, 250);
+		});
+	}
+
+	/**
+	 * Depending on whether appointment booking is enabled, set the interval
+	 * or cancel the appointment interval
+	 */
+	function configureApptmntInterval() {
+		// Set up appointment booking values, intervals, and timeout
+		if (c.data.config.isApptmntEnabled) {
+			apptmntIntervalCtrl.setInterval(function() {
+				fetchAppointments(c.data.locationId);
+			});
+		}
+		else {
+			// Remove appointments from the list when an appointment booking is not set
+			c.data.waitingList = c.data.waitingList.filter(function(item) {
+				return !item.isAppointment;
+			});
+
+			apptmntIntervalCtrl.clearInterval();
+		}
+	}
+}
+]]&gt;&lt;/client_script&gt;&lt;controller_as&gt;c&lt;/controller_as&gt;&lt;css&gt;$queue-bgcolor: radial-gradient(#242424, #383838);
+$queue-color: #FFFFFF;
+
+$avatar-bgcolor: #FFFFFF;
+$avatar-color: #242424;
+
+$callout-h4-color: #9E9E9E;
+$callout-top: 60px;
+$callout-side: 75px;
+
+#form-page-header-wrapper {
+  margin-top: 15%;
+}
+
+/* utility */
+.label-italic {
+  font-style: italic;
+  display: inline-block;
+  font-size: .7em;
+}
+
+/* Override the height to account for long images */
+.wu-logo {
+  max-height: 150px;
+}
+
+/* break out of grid */
+.walkup-queue-page-wrapper {
+  position: fixed;
+  top:0;
+  left: 0;
+  bottom: 0;
+  right:0;
+  background: $queue-bgcolor;
+  color: $queue-color;
+}
+
+.walkup-queue-wrapper {
+  position: absolute;
+  width: 100%;
+}
+
+.walkup-queue-masthead {
+  position: relative;
+  height: 300px;
+  width: 100%;
+  font-size: 16px;
+  text-align: center;
+}
+
+.walkup-masthead {
+  position: absolute;
+  bottom: 0;
+  width: 100%;
+  h1 {
+    font-size: 2.5em;
+    max-width: 960px;
+    width: 80%;
+    min-width: 500px;
+    margin: 0 auto 0 auto;
+  }
+}
+
+.service {
+  position: absolute;
+  width: 100%;
+  top:30%;
+  text-align: center;
+  h1 {
+    line-height: 0em;
+    font-size: 3em;
+  }
+
+  span.user-name {
+    font-size: 7.5em;
+    &amp;amp;.user-unknown {
+      font-style: italic;
+    }
+  }
+}
+
+.walkup-callout {
+  position: absolute;
+  top: $callout-top;
+
+  &amp;amp;.location {
+    left: $callout-side;
+    text-align: left;
+  }
+
+  &amp;amp;.date-time {
+    right: $callout-side;
+    text-align: right;
+  }
+
+  h4 {
+    font-size: 1.25em;
+    font-weight: 600;
+    color: $callout-h4-color;
+  }
+
+  span {
+    font-size: 2.25em;
+    line-height: .7em;
+  }
+}
+
+.walkup-queue {
+  margin-top: 24px;
+}
+
+#walkup-queue-container {
+  display:flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  padding-left: 100px;
+  padding-right: 100px;
+  width:100%;
+  min-height: 500px;
+
+  footer &amp;gt; h3.table-count-info {
+    margin-top: 15px;
+  }
+
+  .h4 {
+    font-size: 2.0em;
+  }
+
+  section.left-content, section.right-content {
+    flex-grow: 1;
+    flex-basis: 40%; // Need to round down in order to work in IE11
+    min-width: 500px;
+    position: relative;
+    .table-header {
+      display: flex;
+      flex-wrap: nowrap;
+      justify-content: space-between;
+      margin-bottom: 25px;
+      padding:0px 30px;
+
+      .header-right {
+        text-align: right;
+      }
+    }
+
+    // Styling for each row in the list
+    .table-row {
+      text-align: left;
+      display: flex;
+      flex-direction: row;
+      flex-wrap: nowrap;
+      justify-content: space-between;
+      padding: 5px 30px;
+
+      &amp;amp;.waiting-row {
+        align-items: baseline;
+        padding-right: 14px;
+      }
+
+      &amp;amp;.serving-row {
+        align-items: center;
+      }
+
+      .row-right {
+        font-size: 1.65em;
+        text-align: right;
+      }
+
+      .technician {
+        display: flex;
+        align-items: center;
+        .avatar-container {
+          height: 50px;
+          width: 50px;
+          margin-left: 8px;
+          .avatar.soloAvatar {
+            .sub-avatar {
+              font-size: 1em;
+              line-height: 50px;
+              background-color: $avatar-bgcolor;
+              color: $avatar-color;
+            }
+          }
+        }
+      }
+
+      .user {
+        flex-basis: 45%;
+        flex-grow: 20;
+        min-width: 100px;
+        color: $queue-color;
+        font-size: 3.0em;
+        padding-right: 16px;
+      }
+    }
+    .time-waited &amp;gt; span {
+      margin-right: 16px; 
+    }
+
+    .appointment-time {
+      background-color: white;
+      padding: 0 16px;
+      border-radius: 25px;
+      min-width: 150px;
+
+      .content {
+        .icon-calendar {
+          width: 10%;
+          margin-right: 8px;
+          float: left;
+        }
+
+        span {
+          width: 90%;
+          color: black;
+        }
+      }
+    }
+  } // End of table-row
+}
+
+#servicedList, #waitingList {
+  min-height: 400px;
+  height: 80%;
+}
+
+@media screen and (max-width: 1199px) {
+  #walkup-queue-container {
+    section.right-content {
+      .table-header {
+        margin-top: 25px;
+        border-top-width: 1px;
+        border-top-color: $queue-color;
+        border-top-style: solid;
+        padding-top: 25px;
+      }
+    }
+  }
+
+  .table-row:first-child {
+    .user, .technician, .queue-position, .time-waited {
+      margin-top: 0 !important;
+    }
+  }
+}
+
+@media screen and (min-width: 1200px) {
+  #servicedList {
+    border-right-width: 1px;
+    border-right-color: $queue-color;
+    border-right-style: solid;
+  }
+  section.left-content {
+    .table-header {
+      padding-right: 72px !important;
+    }
+
+    .table-row {
+      padding-right: 72px !important;
+    }
+  }
+
+  section.right-content {
+    .table-header {
+      padding-left: 72px !important;
+    }
+
+    .table-row {
+      padding-left: 72px !important;
+    }
+  }
+}
+
+.no-wrap {
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.show-more {
+  font-size: 3em;
+  margin-left: 200px;
+}
+
+/* carousel styles */
+.carousel-control.left, .carousel-control.right {
+  background-image: none
+}
+.carousel-control {
+  display: none;
+}
+
+.carousel-full &amp;gt; .carousel-inner {
+  min-height: 400px;
+  height: 80%;
+}
+
+.carousel-indicators {
+  margin-bottom: 0px;
+  bottom: 0;
+  li {
+    margin-left: 3px;
+    margin-right: 3px;
+  }
+}
+
+/* fade animation style */
+.fade {
+  opacity: 1;
+  transition: 1s linear all;
+  -webkit-transition: 1s linear all;
+}
+
+.fade.ng-enter {
+  opacity: 0;
+}
+
+.fade.ng-enter.ng-enter-active {
+  opacity: 1;
+}
+
+.fade.ng-leave {
+  opacity: 1;
+}
+
+.fade.ng-leave.ng-leave-active {
+  opacity: 0;
+}&lt;/css&gt;&lt;data_table&gt;sp_instance&lt;/data_table&gt;&lt;demo_data/&gt;&lt;description&gt;This will display the Walk-up queue that is to be used on a large format display for on site purposes.&lt;/description&gt;&lt;docs/&gt;&lt;field_list/&gt;&lt;has_preview&gt;false&lt;/has_preview&gt;&lt;id&gt;walkup-queue-on-site&lt;/id&gt;&lt;internal&gt;false&lt;/internal&gt;&lt;link/&gt;&lt;name&gt;Walk-up Queue On Site&lt;/name&gt;&lt;option_schema/&gt;&lt;public&gt;false&lt;/public&gt;&lt;roles/&gt;&lt;script&gt;&lt;![CDATA[(function() {
+	/* populate the 'data' object */
+	var walkUpUtil = new sn_walkup.ExtPointUtil().loadExtension("WalkUpUtil");
+	var facade = new sn_walkup.ExtPointUtil().loadExtension("InteractionFacade");
+	
+	// Get configuration for this location
+	var queueId = $sp.getParameter('location_id');
+	if (queueId) {
+		getConfig(queueId);
+		data.queueLocation_Id = facade.getQueueLocation(queueId);
+		data.isValidLocation = walkUpUtil.checkLocationExists(queueId);
+		data.keepAliveTimeout = walkUpUtil.getSessionTimeoutInterval();
+	}
+	
+	function getConfig(queueId) {
+		data.config = walkUpUtil.fetchQueueConfig(queueId);
+		
+		data.config.headerMessages = {
+			welcomeMessage: data.config.welcomeMessage,
+			awayMessage: data.config.awayMessage,
+			closedMessage: data.config.closedMessage
+		}
+		
+		data.config.listOptions = {
+			showTechnician: data.config.displayTechnician,
+			enableAvatars: data.config.enableAvatars,
+			timeOptions: data.config.timeOptions
+		}
+	}
+
+	data.isAuthorizedUser = walkUpUtil.isAuthorized(gs.getUser());
+	data.homeRoute = '/';
+})();
+]]&gt;&lt;/script&gt;&lt;servicenow&gt;true&lt;/servicenow&gt;&lt;sys_class_name&gt;sp_widget&lt;/sys_class_name&gt;&lt;sys_created_by&gt;daniel.kong&lt;/sys_created_by&gt;&lt;sys_created_on&gt;2017-12-05 01:22:04&lt;/sys_created_on&gt;&lt;sys_id&gt;0ee8191653360300c6bfddeeff7b125a&lt;/sys_id&gt;&lt;sys_mod_count&gt;897&lt;/sys_mod_count&gt;&lt;sys_name&gt;Walk-up Queue On Site&lt;/sys_name&gt;&lt;sys_package display_value="Walk-up Experience" source="sn_walkup"&gt;1da803b9b3b10300f686a72256a8dcbc&lt;/sys_package&gt;&lt;sys_policy/&gt;&lt;sys_scope display_value="Walk-up Experience"&gt;1da803b9b3b10300f686a72256a8dcbc&lt;/sys_scope&gt;&lt;sys_update_name&gt;sp_widget_0ee8191653360300c6bfddeeff7b125a&lt;/sys_update_name&gt;&lt;sys_updated_by&gt;admin&lt;/sys_updated_by&gt;&lt;sys_updated_on&gt;2018-09-27 23:04:01&lt;/sys_updated_on&gt;&lt;template&gt;&lt;![CDATA[&lt;div&gt;
+  &lt;div ng-if="c.data.isAuthorizedUser"&gt;
+    &lt;div ng-if="!c.data.locationId"&gt;
+      &lt;walkup-logo class="wu-logo" image="c.data.config.logo" alt="${Walkup Logo}"&gt;&lt;/walkup-logo&gt;
+      &lt;walkup-location-picker&gt;&lt;/walkup-location-picker&gt;
+    &lt;/div&gt;
+
+    &lt;!-- schedule widget ---&gt;
+    &lt;div&gt;
+      &lt;sp-widget widget="c.data.scheduleWidget"&gt;&lt;/sp-widget&gt;
+    &lt;/div&gt;
+
+    &lt;div ng-if="c.data.isAuthorizedUser &amp;&amp; c.data.locationId" class="walkup-queue-page-wrapper"&gt;
+      &lt;div class="walkup-callout location"&gt;
+        &lt;h1 class="h4"&gt;${Location:}&lt;/h1&gt;
+        &lt;span&gt;{{c.data.config.city}}&lt;/span&gt;
+      &lt;/div&gt;
+
+      &lt;div class="walkup-callout date-time"&gt;
+        &lt;h1 class="h4"&gt;{{displayTime | date: 'EEEE, MMM d'}}{{getOrdinal(displayTime)}}&lt;/h1&gt;
+        &lt;span&gt;{{displayTime | date: 'h:mma' | lowercase}}&lt;/span&gt;
+      &lt;/div&gt;
+      &lt;!-- Now servicing template --&gt;
+      &lt;div ng-if="userBeingServed != ''" class="fade service" ng-style="userBeingServedTransition &amp;&amp; {'filter':'blur(60px)', 'transform':'scale(1.25)'}"&gt;
+        &lt;h1&gt;${Now serving}
+          &lt;span ng-if="servedUserIsApptmnt"&gt;&amp;nbsp;${appointment}&lt;/span&gt;
+        &lt;/h1&gt;
+        &lt;span class="user-name" ng-class="{'user-unknown': userBeingServedIsUnknown }"&gt;{{userBeingServed}}&lt;/span&gt;
+      &lt;/div&gt;
+
+      &lt;div class="walkup-queue-wrapper"&gt;
+        &lt;div class="walkup-queue-masthead"&gt;
+          &lt;div ng-if="userBeingServed == ''" class="fade walkup-masthead"&gt;
+            &lt;div class="masthead-content-wrapper"&gt;
+              &lt;walkup-logo class="wu-logo" image="c.data.config.queueLogo" alt="${Walkup Logo}"&gt;&lt;/walkup-logo&gt;
+              &lt;onsite-schedule-message
+                                       is-open="c.data.scheduleWidget.data.schedule.withinSchedule"
+                                       enable-away="c.data.config.enableAwayState"
+                                       messages="c.data.config.headerMessages"
+                                       phone-number="c.data.config.phoneNumber" &gt;
+              &lt;/onsite-schedule-message&gt;
+            &lt;/div&gt;
+          &lt;/div&gt;
+        &lt;/div&gt;
+
+        &lt;!-- queue template --&gt;
+        &lt;div ng-if="userBeingServed == ''" class="fade walkup-queue" ng-include="'walkUpDisplayQueue'"&gt;&lt;/div&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+  &lt;walkup-authorization is_authorized="c.data.isAuthorizedUser" home_route="c.data.homeRoute"&gt;&lt;/walkup-authorization&gt;
+&lt;/div&gt;
+]]&gt;&lt;/template&gt;&lt;/sp_widget&gt;</payload>
+        <sys_class_name>sp_rel_widget_clone</sys_class_name>
+        <sys_created_by>jacebenson</sys_created_by>
+        <sys_created_on>2019-05-20 18:03:16</sys_created_on>
+        <sys_id>bc72a3914f61f3006641cfa18110c7b3</sys_id>
+        <sys_mod_count>0</sys_mod_count>
+        <sys_name>6c72a3914f61f3006641cfa18110c765</sys_name>
+        <sys_package display_value="Check In" source="x_snc_checkin">662d06644f2573006641cfa18110c767</sys_package>
+        <sys_policy/>
+        <sys_scope display_value="Check In">662d06644f2573006641cfa18110c767</sys_scope>
+        <sys_update_name>sp_rel_widget_clone_bc72a3914f61f3006641cfa18110c7b3</sys_update_name>
+        <sys_updated_by>jacebenson</sys_updated_by>
+        <sys_updated_on>2019-05-20 18:03:16</sys_updated_on>
+    </sp_rel_widget_clone>
+</record_update>

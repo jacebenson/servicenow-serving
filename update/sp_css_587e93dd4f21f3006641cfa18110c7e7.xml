@@ -1,0 +1,174 @@
+<?xml version="1.0" encoding="UTF-8"?><record_update table="sp_css">
+    <sp_css action="INSERT_OR_UPDATE">
+        <css>/* Select 2 drop override for user reference picker */&#13;
+@media only screen &#13;
+  and (min-device-width: 768px) &#13;
+  and (max-device-width: 1024px)&#13;
+  and (-webkit-min-device-pixel-ratio: 1)&#13;
+  and (-webkit-min-device-pixel-ratio: 2) {&#13;
+    &#13;
+  .select2-tablet &gt; .select2-drop .select2-results {&#13;
+    font-size: 1.5em;&#13;
+    height:500px !important;&#13;
+  }&#13;
+&#13;
+  .select2-tablet &gt; .select2-drop &gt; .select2-search &gt; input.select2-input {&#13;
+      padding: 8px 16px;&#13;
+      font-size: 1.5em !important;&#13;
+      height: 50px !important;&#13;
+      box-sizing: border-box;&#13;
+      background-size: 124px 80px !important;&#13;
+      background-position: top -43px right !important;&#13;
+  }&#13;
+  &#13;
+  .select2-tablet &gt; .select2-drop {&#13;
+  	top: 100px !important;&#13;
+    height: 500px;&#13;
+  }&#13;
+&#13;
+  .select2-tablet &gt; .select2-drop .select2-results {&#13;
+  	max-height: 430px !important;&#13;
+  }&#13;
+&#13;
+  .select2-tablet &gt; .select2-drop-mask {&#13;
+    background-color: black;&#13;
+    opacity: 0.7;&#13;
+   }&#13;
+}&#13;
+.tablet-field {&#13;
+  margin: 15px auto;&#13;
+}&#13;
+.tablet-field .icon-keyboard, .tablet-field .icon-search {&#13;
+  display: none;&#13;
+}&#13;
+@media only screen and (min-device-width: 768px) and (max-device-width: 1024px) {&#13;
+  .tablet-field .icon-keyboard, .tablet-field .icon-search {&#13;
+    display: block;&#13;
+    position: absolute;&#13;
+    right: 20px;&#13;
+    top: 14px;&#13;
+  }&#13;
+}&#13;
+.tablet-field .icon-menu-arrows {&#13;
+  display: none;&#13;
+}&#13;
+@media only screen and (min-device-width: 768px) and (max-device-width: 1024px) {&#13;
+  .tablet-field .icon-menu-arrows {&#13;
+    display: block;&#13;
+    position: absolute;&#13;
+    right: 24px;&#13;
+    top: 28px;&#13;
+  }&#13;
+}&#13;
+.tablet-field .show-label {&#13;
+  visibility: visible;&#13;
+}&#13;
+.tablet-field label {&#13;
+  padding-left: 16px;&#13;
+  visibility: hidden;&#13;
+  font-size: 1.15em;&#13;
+}&#13;
+.tablet-field textarea {&#13;
+  resize: none;&#13;
+}&#13;
+.tablet-field input {&#13;
+  height: 45px;&#13;
+  font-size: 1em;&#13;
+}&#13;
+.tablet-field textarea, .tablet-field input {&#13;
+  padding: 8px 12px;&#13;
+  box-shadow: none;&#13;
+}&#13;
+.tablet-field label {&#13;
+  font-size: 1em;&#13;
+}&#13;
+.tablet-field .form-field.options-drop {&#13;
+  margin-bottom: 0;&#13;
+}&#13;
+.tablet-field .input-icon-wrapper {&#13;
+  position: relative;&#13;
+}&#13;
+@media only screen and (min-device-width: 768px) and (max-device-width: 1024px) {&#13;
+  .tablet-field .input-icon-wrapper .select2-arrow {&#13;
+    display: none;&#13;
+  }&#13;
+}&#13;
+@media only screen and (min-device-width: 768px) and (max-device-width: 1024px) {&#13;
+  .tablet-field input {&#13;
+    height: 72px;&#13;
+    padding-right: 68px !important; /* size of icon plus 20px on the left and right */&#13;
+&#13;
+  }&#13;
+  .tablet-field textarea, .tablet-field input {&#13;
+    padding: 20px 24px;&#13;
+    font-size: 1.5em;&#13;
+  }&#13;
+}&#13;
+.tablet-field .form-field.select2-container {&#13;
+  width: 100%;&#13;
+  max-width: 512px;&#13;
+  height: 45px;&#13;
+}&#13;
+.tablet-field .form-field.select2-container .select2-choice {&#13;
+  font-size: 1em;&#13;
+  padding: 5px 12px;&#13;
+}&#13;
+.tablet-field .form-field.select2-container .select2-choice .select2-search-choice-close {&#13;
+  background-size: 80px 52px !important;&#13;
+  background-position: right -4px top -2px !important;&#13;
+  right: 60px;&#13;
+  top: 19px;&#13;
+  height: 14px;&#13;
+  width: 14px;&#13;
+}&#13;
+.tablet-field .form-field.select2-container .select2-choice .select2-arrow {&#13;
+  width: 45px;&#13;
+}&#13;
+.tablet-field .form-field.select2-container .select2-choice .select2-arrow b {&#13;
+  height: 45px;&#13;
+  width: 45px;&#13;
+  background-size: 90px 59px !important;&#13;
+  background-position: left 10px top 5px;&#13;
+}&#13;
+@media only screen and (min-device-width: 768px) and (max-device-width: 1024px) {&#13;
+  .tablet-field .form-field.select2-container {&#13;
+    box-sizing: border-box;&#13;
+    height: 72px;&#13;
+  }&#13;
+  .tablet-field .form-field.select2-container .select2-choice {&#13;
+    padding: 20px 24px;&#13;
+    font-size: 1.5em;&#13;
+  }&#13;
+  .tablet-field .form-field.select2-container .select2-choice .select2-search-choice-close {&#13;
+    background-size: 124px 80px !important;&#13;
+    background-position: right -4px top -4px !important;&#13;
+    right: 96px;&#13;
+    top: 28px;&#13;
+    height: 16px;&#13;
+    width: 16px;&#13;
+  }&#13;
+  .tablet-field .form-field.select2-container .select2-choice .select2-arrow {&#13;
+    width: 72px;&#13;
+  }&#13;
+  .tablet-field .form-field.select2-container .select2-choice .select2-arrow b {&#13;
+    height: 72px;&#13;
+    width: 72px;&#13;
+    background-size: 143px 92px !important;&#13;
+    background-position: 16px 8px;&#13;
+  }&#13;
+}</css>
+        <name>tableSelect3.css</name>
+        <sys_class_name>sp_css</sys_class_name>
+        <sys_created_by>jacebenson</sys_created_by>
+        <sys_created_on>2019-05-20 17:45:55</sys_created_on>
+        <sys_id>587e93dd4f21f3006641cfa18110c7e7</sys_id>
+        <sys_mod_count>0</sys_mod_count>
+        <sys_name>tableSelect3.css</sys_name>
+        <sys_package display_value="Check In" source="x_snc_checkin">662d06644f2573006641cfa18110c767</sys_package>
+        <sys_policy/>
+        <sys_scope display_value="Check In">662d06644f2573006641cfa18110c767</sys_scope>
+        <sys_update_name>sp_css_587e93dd4f21f3006641cfa18110c7e7</sys_update_name>
+        <sys_updated_by>jacebenson</sys_updated_by>
+        <sys_updated_on>2019-05-20 17:45:55</sys_updated_on>
+    </sp_css>
+</record_update>

@@ -1,0 +1,344 @@
+<?xml version="1.0" encoding="UTF-8"?><record_update table="sp_rel_widget_clone">
+    <sp_rel_widget_clone action="INSERT_OR_UPDATE">
+        <child display_value="Serving Home">3d5163514f61f3006641cfa18110c7f3</child>
+        <cloned>2019-05-20 17:58:26</cloned>
+        <last_validated>2019-05-20 17:58:26</last_validated>
+        <parent display_value="Walk-up Home">a5903184232203004f93121727bf6578</parent>
+        <payload>&lt;?xml version="1.0" encoding="UTF-8"?&gt;&lt;sp_widget&gt;&lt;category&gt;custom&lt;/category&gt;&lt;client_script&gt;&lt;![CDATA[function($scope, $location) {
+	var c = this;
+	var queueLink = '?id=walkup_queue_on_site';
+	var checkInLink = '?id=walkup_check_in';
+	var surveyLink = '?id=walkup_survey';
+
+	c.queueLink = queueLink;
+	c.checkInLink = checkInLink;
+	c.surveyLink = surveyLink;
+	c.isSelected = false;
+	c.selectedName = '';
+	c.previousSysId = '';
+	c.recordPickerFields = {};
+
+	// Reset the state of the home page prior to selecting a location
+	c.cancelSelection = function() {
+		c.selectedName = '';
+		c.isSelected = false;
+		clearRecordPickerFields();
+	};
+
+	initializePage();
+
+	// Listen to changes made to the record picker
+	$scope.$on("field.change", function(evt, parms) {
+		var sysId = parms.newValue;
+		var name = parms.displayValue;
+
+		// When a new value is selcted from the location picker
+		if (sysId &amp;&amp; c.previousSysId === sysId) {
+			c.previousSysId = sysId;
+			selectLocation(name);
+		}
+		// Clear the state of the home page
+		else {
+			c.cancelSelection();
+		}
+
+		setLink(sysId);
+		setUrl(sysId);
+	});
+
+	/**
+	 * Initialize the home page based on the url parameters. If there is a location_id and a 
+	 * name in the parameter, then render the location picker with the corresponding id and name
+	 */
+	function initializePage() {
+		var urlParams = $location.search();
+		var sysId = urlParams.location_id;
+
+		if (sysId)
+			checkIfLocationExist(sysId);
+		else
+			clearRecordPickerFields();
+	}
+
+	/**
+	 * Make a call to the server to check if the passed in sysId exists or is active.
+	 *
+	 * @param {stirng} sysId - The sys_id of the wu_location_queue table.
+	 */
+	function checkIfLocationExist(sysId) {
+		c.server.get({
+			action: c.data.actions.checkLocationExists,
+			sysId: sysId
+		}).then(function(result) {
+			var locationName = result.data.doesLocationExist;
+
+			if (locationName) {
+				c.recordPickerFields = {
+					displayValue: locationName,
+					value: sysId,
+					name: 'location'
+				};
+
+				c.previousSysId = sysId
+				selectLocation(locationName);
+				setLink(sysId);
+			}
+			else
+				clearRecordPickerFields();
+
+		});
+	}
+
+	// Set the state to show the clickable panels and the locaiton name when a location has been selected
+	function selectLocation(name) {
+		c.selectedName = name;
+		c.isSelected = true;
+	}
+
+	// Set the record picker fields to a clean state.
+	function clearRecordPickerFields() {
+		c.recordPickerFields = {
+			displayValue: name,
+			value: '',
+			name: 'location'
+		};
+	}
+
+	// Set the url parameters
+	function setUrl(id) {
+		$location.search('location_id', id);
+	}
+
+	// Change the links to point to the walk-up pages with the corresponding id and name
+	function setLink(id) {
+		c.queueLink = queueLink + '&amp;location_id=' + id;
+		c.checkInLink = checkInLink + '&amp;location_id=' + id;
+		c.surveyLink = surveyLink + '&amp;location_id=' + id;
+	}
+}]]&gt;&lt;/client_script&gt;&lt;controller_as&gt;c&lt;/controller_as&gt;&lt;css&gt;$color_now: #E51B24;
+
+.location-header {
+  margin-top: 25px;
+  margin-bottom: 25px;
+  .location-picker {
+    max-width: 340px;
+  }
+
+  .location-name {
+    display-inline: inline-block;
+    h2 {
+      font-size: 1.5em;
+      display: inline-block;
+      margin-right: 8px;
+    }
+  }
+}
+
+p {
+  color: #3A3F51;
+  font-size: 1.1em;
+  line-height: 1.6;
+}
+
+.color_box {
+  display: block;
+  position: relative;
+  padding: 20px;
+  border-radius: 4px;
+  margin-bottom: 20px;
+  -webkit-flex: 1;
+  -ms-flex: 1;
+  flex: 1;
+
+  &amp;amp;:hover {
+    background-color: #E1E4E6;
+  }
+}
+
+h2 {
+  font-weight: 400;
+  padding: 0;
+  margin: 10px 0;
+  line-height: 1.4;
+  font-size: 22px;
+}
+
+.intro {
+  margin: 50px 0 25px;
+  border-bottom: 1px solid #ddd;
+  padding-bottom: 25px;
+}
+
+.flex {
+  display: -webkit-flex;
+  display: -ms-flexbox;
+  display: flex;
+  -webkit-flex-wrap: wrap;
+  -ms-flex-wrap: wrap;
+  flex-wrap: wrap;
+  -webkit-flex-direction: row;
+  -ms-flex-direction: row;
+  flex-direction: row;
+
+  &amp;amp; &amp;gt; div {
+    -webkit-flex: 1;
+    -ms-flex: 1;
+    flex: 1;
+    display: -webkit-flex;
+    display: -ms-flexbox;
+    display: flex;
+    padding-right: 10px;
+
+    &amp;amp;:last-child {
+      padding-right: 0;
+    }
+
+    .text-primary {
+      background: rgba($brand-primary, 0.15);
+    }
+
+    .text-info {
+      background: rgba($brand-info, 0.15);
+    }
+
+    .text-success {
+      background: rgba($brand-success, 0.15);
+    }
+
+    .text-warning {
+      background: rgba($brand-warning, 0.15);
+    }    
+  }
+
+  &amp;amp; &amp;gt; div:hover {
+
+    p,
+    .fa-circle,
+    h2 {
+      color: #fff;
+    }
+
+    .text-primary {
+      background-color: $brand-primary;
+      .fa-inverse {
+        color: $brand-primary;
+      }
+    }
+
+    .text-info {
+      background-color: $brand-info;
+      .fa-inverse {
+        color: $brand-info;
+      }
+    }
+
+    .text-success {
+      background-color: $brand-success;
+      .fa-inverse {
+        color: $brand-success;
+      }
+    }
+
+    .text-warning {
+      background-color: $brand-warning;
+      .fa-inverse {
+        color: $brand-warning;
+      }
+    }
+
+  }
+
+}
+
+}&lt;/css&gt;&lt;data_table&gt;sp_instance&lt;/data_table&gt;&lt;demo_data/&gt;&lt;description/&gt;&lt;docs/&gt;&lt;field_list/&gt;&lt;has_preview&gt;false&lt;/has_preview&gt;&lt;id&gt;walkup-home&lt;/id&gt;&lt;internal&gt;false&lt;/internal&gt;&lt;link/&gt;&lt;name&gt;Walk-up Home&lt;/name&gt;&lt;option_schema/&gt;&lt;public&gt;false&lt;/public&gt;&lt;roles/&gt;&lt;script&gt;&lt;![CDATA[(function(){
+	var actions = data.actions = {};
+	actions.checkLocationExists = 'CHECK_EXISTS';
+	var walkUpUtil = new sn_walkup.ExtPointUtil().loadExtension("WalkUpUtil");
+
+	if (input &amp;&amp; input.action === actions.checkLocationExists)
+		data.doesLocationExist = walkUpUtil.checkLocationExists(input.sysId);
+
+	data.isAuthorizedUser = walkUpUtil.isAuthorized(gs.getUser());
+	data.homeRoute = '/';
+
+})();]]&gt;&lt;/script&gt;&lt;servicenow&gt;true&lt;/servicenow&gt;&lt;sys_class_name&gt;sp_widget&lt;/sys_class_name&gt;&lt;sys_created_by&gt;daniel.kong&lt;/sys_created_by&gt;&lt;sys_created_on&gt;2017-11-15 17:02:43&lt;/sys_created_on&gt;&lt;sys_id&gt;a5903184232203004f93121727bf6578&lt;/sys_id&gt;&lt;sys_mod_count&gt;263&lt;/sys_mod_count&gt;&lt;sys_name&gt;Walk-up Home&lt;/sys_name&gt;&lt;sys_package display_value="Walk-up Experience" source="sn_walkup"&gt;1da803b9b3b10300f686a72256a8dcbc&lt;/sys_package&gt;&lt;sys_policy/&gt;&lt;sys_scope display_value="Walk-up Experience"&gt;1da803b9b3b10300f686a72256a8dcbc&lt;/sys_scope&gt;&lt;sys_update_name&gt;sp_widget_a5903184232203004f93121727bf6578&lt;/sys_update_name&gt;&lt;sys_updated_by&gt;daniel.kong&lt;/sys_updated_by&gt;&lt;sys_updated_on&gt;2018-09-12 18:54:47&lt;/sys_updated_on&gt;&lt;template&gt;&lt;![CDATA[&lt;div&gt;
+  &lt;div ng-if="c.data.isAuthorizedUser"&gt;
+
+    &lt;div class="intro"&gt;
+      &lt;h1&gt;${Walk-up Experience}&lt;/h1&gt;
+    &lt;/div&gt;
+    &lt;div class="location-header"&gt;
+      &lt;div ng-if="!c.isSelected" class="location-picker"&gt;
+        &lt;sn-record-picker
+                          id="location-dropdown"
+                          table="'wu_location_queue'"
+                          display-field="'name'"
+                          placeholder="${Select a walk-up location}"
+                          value-field="'sys_id'"
+                          search-fields="'name'"
+                          field="c.recordPickerFields"
+                          page-size="100"
+                          default-query="'active=true'"
+                          aria-label="select-location"
+                          &gt;
+        &lt;/sn-record-picker&gt;
+      &lt;/div&gt;
+      &lt;div ng-if="c.isSelected" class="location-name"&gt;
+        &lt;h2 class="location-name"&gt;
+          {{c.selectedName}}
+        &lt;/h2&gt;
+        &lt;a class="cancel-location" ng-click="c.cancelSelection()" href=""&gt;${Change location}&lt;/a&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+
+    &lt;div ng-if="c.isSelected" class="flex"&gt;
+      &lt;div aria-labelledby="queueLabel" aria-describedby="queueInfo"&gt;
+        &lt;a href="{{c.queueLink}}" class="color_box text-info" role="link"&gt;
+          &lt;span aria-label="Queue icon" class="fa fa-stack fa-2x"&gt; 
+            &lt;i class="fa fa-circle fa-stack-2x"&gt;&lt;/i&gt; 
+            &lt;i class="fa fa-list-alt fa-stack-1x fa-inverse"&gt;&lt;/i&gt; 
+          &lt;/span&gt;
+          &lt;h2 id='queueLabel'&gt;${Queue}&lt;/h2&gt;
+          &lt;p id='queueInfo'&gt;${View the current list of requestors at the walk-up location.}&lt;/p&gt;
+        &lt;/a&gt;
+      &lt;/div&gt;
+      &lt;div aria-labelledby="checkInLabel" aria-describedby="checkInInfo"&gt;
+        &lt;a href="{{c.checkInLink}}" class="color_box text-success" role="link"&gt;
+          &lt;span aria-label="Check-in icon" class="fa fa-stack fa-2x"&gt; 
+            &lt;i class="fa fa-circle fa-stack-2x"&gt;&lt;/i&gt; 
+            &lt;i class="fa fa-check-square-o fa-stack-1x fa-inverse"&gt;&lt;/i&gt; 
+          &lt;/span&gt;
+          &lt;h2 id="checkInLabel"&gt;${Check-in}&lt;/h2&gt;
+          &lt;p id="checkInInfo"&gt;${Allow requestors to check-in for service at the walk-up location.}&lt;/p&gt;
+        &lt;/a&gt;
+      &lt;/div&gt;
+      &lt;div aria-labelledby="surveyLabel" aria-describedby="surveyInfo"&gt;
+        &lt;a href="{{c.surveyLink}}" class="color_box text-warning" role="link"&gt;
+          &lt;span aria-label="Survey icon" class="fa fa-stack fa-2x"&gt; 
+            &lt;i class="fa fa-circle fa-stack-2x"&gt;&lt;/i&gt; 
+            &lt;i class="fa fa-paper-plane-o fa-stack-1x fa-inverse"&gt;&lt;/i&gt; 
+          &lt;/span&gt;
+          &lt;h2 id="surveyLabel"&gt;${Survey}&lt;/h2&gt;
+          &lt;p id="surveyInfo"&gt;${Capture requestor sentiment of the experience by location.}&lt;/p&gt;
+        &lt;/a&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+  &lt;walkup-authorization is_authorized="c.data.isAuthorizedUser" home_route="c.data.homeRoute"&gt;&lt;/walkup-authorization&gt;
+&lt;/div&gt;
+
+]]&gt;&lt;/template&gt;&lt;/sp_widget&gt;</payload>
+        <sys_class_name>sp_rel_widget_clone</sys_class_name>
+        <sys_created_by>jacebenson</sys_created_by>
+        <sys_created_on>2019-05-20 17:58:26</sys_created_on>
+        <sys_id>3d5163514f61f3006641cfa18110c7f7</sys_id>
+        <sys_mod_count>0</sys_mod_count>
+        <sys_name>3d5163514f61f3006641cfa18110c7f3</sys_name>
+        <sys_package display_value="Check In" source="x_snc_checkin">662d06644f2573006641cfa18110c767</sys_package>
+        <sys_policy/>
+        <sys_scope display_value="Check In">662d06644f2573006641cfa18110c767</sys_scope>
+        <sys_update_name>sp_rel_widget_clone_3d5163514f61f3006641cfa18110c7f7</sys_update_name>
+        <sys_updated_by>jacebenson</sys_updated_by>
+        <sys_updated_on>2019-05-20 17:58:26</sys_updated_on>
+    </sp_rel_widget_clone>
+</record_update>

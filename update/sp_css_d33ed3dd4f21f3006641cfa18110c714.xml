@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?><record_update table="sp_css">
+    <sp_css action="INSERT_OR_UPDATE">
+        <css>/* Styles for location picker */&#13;
+.record-picker-wrapper {&#13;
+  display: block;&#13;
+  margin-left: auto;&#13;
+  margin-right: auto;&#13;
+  max-width: 512px !important;&#13;
+  height: 50px;&#13;
+}&#13;
+&#13;
+#wu-location-picker &gt; button {&#13;
+    margin-left: 8px;&#13;
+}&#13;
+&#13;
+#wu-location-picker {&#13;
+	display: flex;&#13;
+    flex-direction:row;&#13;
+    flex-wrap: nowrap;&#13;
+}&#13;
+&#13;
+/* Styles for Logo Directive */&#13;
+.wu-logo {&#13;
+  max-height: 200px;&#13;
+  max-width: 300px;&#13;
+  height: auto;&#13;
+  width: auto;&#13;
+  display: block;&#13;
+  margin-left:auto;&#13;
+  margin-right: auto;&#13;
+  padding: 25px 0;&#13;
+}&#13;
+&#13;
+main.body.padding-top {&#13;
+	padding: 0;&#13;
+}</css>
+        <name>Serving Css</name>
+        <sys_class_name>sp_css</sys_class_name>
+        <sys_created_by>jacebenson</sys_created_by>
+        <sys_created_on>2019-05-20 17:45:04</sys_created_on>
+        <sys_id>d33ed3dd4f21f3006641cfa18110c714</sys_id>
+        <sys_mod_count>0</sys_mod_count>
+        <sys_name>Serving Css</sys_name>
+        <sys_package display_value="Check In" source="x_snc_checkin">662d06644f2573006641cfa18110c767</sys_package>
+        <sys_policy/>
+        <sys_scope display_value="Check In">662d06644f2573006641cfa18110c767</sys_scope>
+        <sys_update_name>sp_css_d33ed3dd4f21f3006641cfa18110c714</sys_update_name>
+        <sys_updated_by>jacebenson</sys_updated_by>
+        <sys_updated_on>2019-05-20 17:45:04</sys_updated_on>
+    </sp_css>
+</record_update>
